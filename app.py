@@ -1,18 +1,14 @@
-from lume_model.models import TorchModel
-
 from gui import LUMEModelVisualApp
 
-LCLS_CU_INJECTOR_MODEL_PATH = "lcls_cu_injector_ml_model"
+MODEL_PATH = (
+    "/Users/mvicto/Desktop/projects/lume/lume-model-visual/lcls_cu_injector_ml_model"
+)
 
 
 def main() -> None:
-    model_file_path = LCLS_CU_INJECTOR_MODEL_PATH + "/model_config.yaml"
-    model = TorchModel(model_file_path)
+    model_file_path = MODEL_PATH + "/model_config.yaml"
 
-    result = model.evaluate({"QUAD:IN20:425:BACT": -1})
-    print(result)
-
-    app = LUMEModelVisualApp()
+    app = LUMEModelVisualApp(model_file_path)
     app.start()
 
 

@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any
 
 from trame_server import Server
 from trame_server.state import State
@@ -6,27 +6,29 @@ from trame_server.controller import Controller
 from trame_server.core import BackendType, ExecModeType
 
 from trame.app import TrameApp
-from trame.widgets import vuetify3 as v3
-from trame.ui.vuetify3 import SinglePageLayout
+
+from lume_model.models import TorchModel
+
+from ui import UI
+
+from util import sanitize_string
 
 
 class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
     server: Server  # pyright: ignore[reportIncompatibleMethodOverride]
+    model: TorchModel
 
     def __init__(
         self,
-        name: str | Server | None = None,
-        client_type: Literal["vue2", "vue3"] | None = "vue3",
-        ctx_name: str | None = None,
+        model_path: str,
     ) -> None:
         super().__init__(  # pyright: ignore[reportUnknownMemberType]
-            server=name,
-            client_type=client_type,  # pyright: ignore[reportArgumentType]
-            ctx_name=ctx_name,
+            client_type="vue3",
         )
 
+        self.load_model(model_path)
         self._initialize_state()
-        self._initialize_ui()
+        self.ui = UI(self.server, self.model)
 
     @property
     def state(self) -> State:
@@ -37,23 +39,14 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
         return self.server.controller
 
     def _initialize_state(self) -> None:
-        self.state.example_value = 42
+        """Initialize state values for all input variables before UI creation."""
 
-    def _initialize_ui(self) -> None:
-        with SinglePageLayout(self.server) as layout:
-            layout.title.set_text(  # pyright: ignore[reportUnknownMemberType]
-                "LUME Model Visualizer"
-            )
+        for var in self.model.input_variables:
+            if var.default_value is not None:
+                self.state[sanitize_string(var.name)] = var.default_value
 
-            with layout.content:
-                with v3.VContainer(fluid=True):
-                    v3.VRangeSlider(
-                        v_model="example_value",
-                        min=0,
-                        max=100,
-                        step=1,
-                        label="Example Value: {{ example_value }}",
-                    )
+    def load_model(self, model_path: str) -> None:
+        self.model = TorchModel(model_path)
 
     def start(
         self,
