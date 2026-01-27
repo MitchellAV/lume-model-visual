@@ -41,9 +41,19 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
     def _initialize_state(self) -> None:
         """Initialize state values for all input variables before UI creation."""
 
+        # _input_variables = {}
+
         for var in self.model.input_variables:
             if var.default_value is not None:
-                self.state[sanitize_string(var.name)] = var.default_value
+                self.state[f"input_variables_{sanitize_string(var.name)}"] = (
+                    var.default_value
+                )
+
+        for var in self.model.output_variables:
+            DEFAULT_OUTPUT_VALUE = "N/A"
+            self.state[f"output_variables_{sanitize_string(var.name)}"] = (
+                DEFAULT_OUTPUT_VALUE
+            )
 
     def load_model(self, model_path: str) -> None:
         self.model = TorchModel(model_path)
