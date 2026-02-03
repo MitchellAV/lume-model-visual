@@ -1,4 +1,5 @@
 from typing import Any
+import pandas as pd
 
 from trame_server import Server
 from trame_server.state import State
@@ -47,16 +48,19 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
                     var.default_value
                 )
 
-        output_dict: dict[str, list[float]] = {}
+        column_names: list[str] = []
 
         for var in self.model.output_variables:
             DEFAULT_OUTPUT_VALUE = "N/A"
             self.state[f"output_variables_{sanitize_string(var.name)}"] = (
                 DEFAULT_OUTPUT_VALUE
             )
-            output_dict[var.name] = []
+            column_names.append(var.name)
 
+        output_df = pd.DataFrame(columns=column_names)
+        output_dict = output_df.to_dict(orient="list")
         self.state["output_plot_data"] = output_dict
+        self.state.dirty("output_plot_data")
 
     def load_model(self, model_path: str) -> None:
         self.model = TorchModel(model_path)

@@ -1,6 +1,7 @@
 from trame_server import Server
 
 import numpy as np
+import pandas as pd
 
 from trame.ui.vuetify3 import SinglePageLayout
 from trame.widgets.html import Div
@@ -15,6 +16,7 @@ from trame.widgets.vuetify3 import (
     VCheckbox,
 )
 import plotly.graph_objects as go
+import plotly.express as px
 from trame.widgets.plotly import Figure
 
 from lume_model.models import TorchModel
@@ -27,7 +29,6 @@ from pprint import pprint
 
 class UI:
     counter: int = 0
-    data: dict[str, list[float]] = {}
 
     def __init__(self, server: Server, model: TorchModel) -> None:
         self.server = server
@@ -50,15 +51,19 @@ class UI:
         return input_dict
 
     def _update_output_values(self, output: dict[str, float]) -> None:
+        output_df = pd.DataFrame.from_dict(dict(self.server.state["output_plot_data"]))
+
+        # cast all columns to float
+        row = {col: float(output[col]) for col in output_df.columns}
+        # Create new row with same columns as existing dataframe
+        new_row = pd.DataFrame([row], columns=output_df.columns)
+        output_df = pd.concat([output_df, new_row], ignore_index=True)
+
+        self.server.state["output_plot_data"] = output_df.to_dict(orient="list")
+        self.server.state.dirty("output_plot_data")
         for key, value in output.items():
             state_key = f"output_variables_{sanitize_string(key)}"
             self.server.state[state_key] = float(value)
-
-            prev_data_dict = self.server.state["output_plot_data"]
-
-            for plot_key in prev_data_dict:
-                if plot_key == key:
-                    prev_data_dict[plot_key].append(float(value))
 
     def _evauate_model(self) -> None:
         input_dict = self._collect_input_values()
@@ -97,34 +102,44 @@ class UI:
 
         output_variables = sorted(self.model.output_variables, key=lambda var: var.name)
 
+        VBtn(
+            "Run Model",
+            click=self._handle_update_plot,
+        )
+
         with VContainer(fluid=True):
-            VBtn(
-                "Run Model",
-                click=self._handle_update_plot,
-            )
-            with VDivider():
-                Div("Plot")
-            self._initialize_plot()
+            with VRow():
+                with VCol():
+                    with VDivider():
+                        Div("Output Variables")
+                    self._initialize_output_widgets(output_variables)
+                with VCol():
+                    with VDivider():
+                        Div("Plot")
+                    self._initialize_timeseries_plot()
+                    self._initialize_2d_histogram_plot()
+                    self._handle_update_plot()
 
-            with VDivider():
-                Div("Output Variables")
-            with VContainer(fluid=True):
-                for var in output_variables:
-                    name = var.name
+        with VDivider():
+            Div("Input Variables")
+        self._initialize_input_widgets(input_variables)
 
-                    state_key = f"output_variables_{sanitize_string(name)}"
+    def _initialize_output_widgets(
+        self, output_variables: list[ScalarVariable]
+    ) -> None:
+        with VContainer(fluid=True):
+            for var in output_variables:
+                name = var.name
 
-                    with VRow():
-                        with VCol():
-                            Div(f"{name}")
-                        with VCol():
-                            VTextField(
-                                v_model=(state_key,),
-                                readonly=True,
-                            )
-            with VDivider():
-                Div("Input Variables")
-            self._initialize_input_widgets(input_variables)
+                state_key = f"output_variables_{sanitize_string(name)}"
+                with VRow():
+                    with VCol():
+                        Div(f"{name}")
+                    with VCol():
+                        VTextField(
+                            v_model=(state_key,),
+                            readonly=True,
+                        )
 
     def _initialize_input_widgets(self, input_variables: list[ScalarVariable]) -> None:
         with VContainer(fluid=True):
@@ -181,14 +196,14 @@ class UI:
 
     def _collect_values_by_variable_name(
         self, variable_names: list[str]
-    ) -> dict[str, list[float]]:
-        output_plot_data: dict[str, list[float]] = self.server.state[
-            "output_plot_data"
-        ].copy()
+    ) -> pd.DataFrame:
+        output_plot_data = pd.DataFrame.from_dict(
+            dict(self.server.state["output_plot_data"])
+        ).copy(deep=True)
 
-        for output_var in list(output_plot_data.keys()):
-            if output_var not in variable_names:
-                output_plot_data.pop(output_var)
+        # for output_var in list(output_plot_data.keys()):
+        #     if output_var not in variable_names:
+        #         output_plot_data.pop(output_var)
         return output_plot_data
 
     def _collect_plot_variables(self) -> list[str]:
@@ -207,36 +222,71 @@ class UI:
     ) -> None:
         self._update_plot()
 
-    def _initialize_plot(self) -> None:
-        # Requires height to display properly
+    def _initialize_2d_histogram_plot(self) -> None:
         with VContainer(fluid=True, style="position: relative; height: 400px;"):
-            self.figure = self._initialize_figure()
-        with VContainer(fluid=True):
+            self.figure_hist = self._initialize_2d_histogram_figure()
+        with VContainer(
+            fluid=True,
+            classes="d-flex flex-wrap",
+        ):
             self._create_variables_to_plot()
             self._handle_update_plot()
+
+    def _initialize_2d_histogram_figure(
+        self, data: pd.DataFrame | None = None
+    ) -> Figure:
+        self.figure_hist = self._create_2d_histogram_figure(data)
+        return Figure(figure=self.figure_hist, responsive=True)
+
+    def _create_2d_histogram_figure(
+        self, data: pd.DataFrame | None = None
+    ) -> go.Figure:
+        if data is None:
+            data = pd.DataFrame(
+                {
+                    "var1": [np.random.rand() for _ in range(10)],
+                    "var2": [np.random.rand() for _ in range(10)],
+                }
+            )
+            data = pd.DataFrame(data)
+
+        fig = px.density_heatmap(data_frame=data, x=data.columns[0], y=data.columns[1])
+        return fig
+
+    def _initialize_timeseries_plot(self) -> None:
+        # Requires height to display properly
+        with VContainer(fluid=True, style="position: relative; height: 400px;"):
+            self.figure_time = self._initialize_timeseries_figure()
+        with VContainer(
+            fluid=True,
+            classes="d-flex flex-wrap",
+        ):
+            self._create_variables_to_plot()
 
     def _create_variables_to_plot(self) -> None:
         output_variable_names = [var.name for var in self.model.output_variables]
         for var_name in output_variable_names:
-            VCheckbox(
-                v_model=(f"plot_variable_{sanitize_string(var_name)}", True),
-                label=var_name,
-                change=self._handle_variable_plot_change,
-            )
+            with VCol():
+                VCheckbox(
+                    v_model=(f"plot_variable_{sanitize_string(var_name)}", True),
+                    label=var_name,
+                    change=self._handle_variable_plot_change,
+                )
 
-    def _initialize_figure(self, data: dict[str, list[float]] | None = None) -> Figure:
-        self.figure = self._create_figure(data)
-        return Figure(figure=self.figure, responsive=True)
+    def _initialize_timeseries_figure(self, data: pd.DataFrame | None = None) -> Figure:
+        self.figure_time = self._create_timeseries_figure(data)
+        return Figure(figure=self.figure_time, responsive=True)
 
-    def _create_figure(
+    def _create_timeseries_figure(
         self,
-        data: dict[str, list[float]] | None = None,
+        data: pd.DataFrame | None = None,
     ) -> go.Figure:
         if data is None:
             data = {
                 "var1": [np.random.rand() for _ in range(10)],
                 "var2": [np.random.rand() for _ in range(10)],
             }
+            data = pd.DataFrame(data)
 
         plots = []
 
@@ -253,15 +303,15 @@ class UI:
 
         return go.Figure(data=plots)
 
-    def _update_figure(self, data: dict[str, list[float]] | None = None) -> None:
-        fig = self._create_figure(data)
+    def _update_figure(self, data: pd.DataFrame | None = None) -> None:
+        fig1 = self._create_timeseries_figure(data)
+        fig2 = self._create_2d_histogram_figure(data)
 
-        self.figure.update(plotly_fig=fig)  # pyright: ignore[reportUnknownMemberType]
+        self.figure_time.update(plotly_fig=fig1)  # pyright: ignore[reportUnknownMemberType]
+        self.figure_hist.update(plotly_fig=fig2)  # pyright: ignore[reportUnknownMemberType]
 
     def _update_plot(self) -> None:
         output_plot_variables = self._collect_plot_variables()
 
-        data: dict[str, list[float]] = self._collect_values_by_variable_name(
-            output_plot_variables
-        )
+        data = self._collect_values_by_variable_name(output_plot_variables)
         self._update_figure(data)
