@@ -55,12 +55,30 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
             self.state[f"output_variables_{sanitize_string(var.name)}"] = (
                 DEFAULT_OUTPUT_VALUE
             )
+
             column_names.append(var.name)
 
         output_df = pd.DataFrame(columns=column_names)
         output_dict = output_df.to_dict(orient="list")
         self.state["output_plot_data"] = output_dict
         self.state.dirty("output_plot_data")
+
+        output_variables_names = [var.name for var in self.model.output_variables]
+
+        x_items = [{"title": name, "value": name} for name in output_variables_names]
+        y_items = [{"title": name, "value": name} for name in output_variables_names]
+
+        DEFAULT_X = 0
+        DEFAULT_Y = 1 if len(output_variables_names) > 1 else 0
+
+        x_default = output_variables_names[DEFAULT_X]
+        y_default = output_variables_names[DEFAULT_Y]
+
+        self.server.state["hist_x_axis"] = x_default
+        self.server.state["hist_y_axis"] = y_default
+
+        self.server.state["x_select"] = x_items
+        self.server.state["y_select"] = y_items
 
     def load_model(self, model_path: str) -> None:
         self.model = TorchModel(model_path)
