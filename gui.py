@@ -1,23 +1,24 @@
 from typing import Any
-import pandas as pd
 
 from trame_server import Server
-from trame_server.state import State
-from trame_server.controller import Controller
 from trame_server.core import BackendType, ExecModeType
+from trame.decorators import change
 
 from trame.app import TrameApp
 
 from lume_model.models import TorchModel
 
-from ui import UI
+from state import StateManager
 
-from util import sanitize_string
+
+from ui import UI
 
 
 class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
     server: Server  # pyright: ignore[reportIncompatibleMethodOverride]
     model: TorchModel
+
+    DEFAULT_UPDATE_INTERVAL = 1.0  # seconds
 
     def __init__(
         self,
@@ -27,61 +28,24 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
             client_type="vue3",
         )
 
+        self.server.hot_reload = True
+
         self.load_model(model_path)
-        self._initialize_state()
-        self.ui = UI(self.server, self.model)
-
-    @property
-    def state(self) -> State:
-        return self.server.state
-
-    @property
-    def ctrl(self) -> Controller:
-        return self.server.controller
-
-    def _initialize_state(self) -> None:
-        """Initialize state values for all input variables before UI creation."""
-
-        for var in self.model.input_variables:
-            if var.default_value is not None:
-                self.state[f"input_variables_{sanitize_string(var.name)}"] = (
-                    var.default_value
-                )
-
-        column_names: list[str] = []
-
-        for var in self.model.output_variables:
-            DEFAULT_OUTPUT_VALUE = "N/A"
-            self.state[f"output_variables_{sanitize_string(var.name)}"] = (
-                DEFAULT_OUTPUT_VALUE
-            )
-
-            column_names.append(var.name)
-
-        output_df = pd.DataFrame(columns=column_names)
-        output_dict = output_df.to_dict(orient="list")
-        self.state["output_plot_data"] = output_dict
-        self.state.dirty("output_plot_data")
-
-        output_variables_names = [var.name for var in self.model.output_variables]
-
-        x_items = [{"title": name, "value": name} for name in output_variables_names]
-        y_items = [{"title": name, "value": name} for name in output_variables_names]
-
-        DEFAULT_X = 0
-        DEFAULT_Y = 1 if len(output_variables_names) > 1 else 0
-
-        x_default = output_variables_names[DEFAULT_X]
-        y_default = output_variables_names[DEFAULT_Y]
-
-        self.server.state["hist_x_axis"] = x_default
-        self.server.state["hist_y_axis"] = y_default
-
-        self.server.state["x_select"] = x_items
-        self.server.state["y_select"] = y_items
+        self.state_manager = StateManager(self.server, self.model)
+        self.ui = UI(self.state_manager)
+        # self.start_clock()
 
     def load_model(self, model_path: str) -> None:
         self.model = TorchModel(model_path)
+
+    # @self.server.controller.add_task()
+    # async def update_loop():
+    #     pass
+
+    @change("hist_x_axis", "hist_y_axis")  # type: ignore
+    def handle_hist_axis_change(self, *args: Any, **kwargs: Any) -> None:
+        print("Axis changed, updating plot...")
+        self.ui.update_plot()
 
     def start(
         self,

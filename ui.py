@@ -1,4 +1,5 @@
-from trame_server import Server
+from trame_server.state import State
+from trame_server.controller import Controller
 
 import numpy as np
 import pandas as pd
@@ -23,25 +24,36 @@ from trame.widgets.plotly import Figure
 from lume_model.models import TorchModel
 from lume_model.variables import ScalarVariable
 
-from util import sanitize_string
+from state import StateManager
 
-from pprint import pprint
+from util import sanitize_string
 
 
 class UI:
     counter: int = 0
 
-    def __init__(self, server: Server, model: TorchModel) -> None:
-        self.server = server
-        self.model = model
+    def __init__(self, state_manager: StateManager) -> None:
+        self.state_manager = state_manager
 
-        self.state = server.state
-        self.ctrl = server.controller
-
-        self.ctrl.update_plot = self._update_plot
-
+        self._initialize_event_listeners()
         self._initialize_ui()
-        self._evaluate_and_update_plot()
+        self.evaluate_and_update_plot()
+
+    @property
+    def model(self) -> TorchModel:
+        return self.state_manager.model
+
+    @property
+    def state(self) -> State:
+        return self.state_manager.state
+
+    @property
+    def ctrl(self) -> Controller:
+        return self.state_manager.ctrl
+
+    def _initialize_event_listeners(self) -> None:
+        self.ctrl.update_plot = self.update_plot
+        self.ctrl.evaluate_and_update_plot = self.evaluate_and_update_plot
 
     def _collect_input_values(self) -> dict[str, float]:
         input_dict: dict[str, float] = {}
@@ -58,7 +70,7 @@ class UI:
         return input_dict
 
     def _update_output_values(self, output: dict[str, float]) -> None:
-        output_df = pd.DataFrame.from_dict(dict(self.state["output_plot_data"]))
+        output_df = pd.DataFrame.from_dict(self.state["output_plot_data"])
 
         # cast all columns to float
         row = {col: float(output[col]) for col in output_df.columns}
@@ -68,26 +80,22 @@ class UI:
 
         self.state["output_plot_data"] = output_df.to_dict(orient="list")
         self.state.dirty("output_plot_data")
+
         for key, value in output.items():
-            state_key = f"output_variables_{sanitize_string(key)}"
+            state_key = f"{self.state_manager.PREFIX_OUTPUT}_{sanitize_string(key)}"
             self.state[state_key] = float(value)
 
-    def _evaluate_model(self) -> None:
+    def evaluate_model(self) -> None:
         input_dict = self._collect_input_values()
-
         output = self.model.evaluate(input_dict)
-
-        print("Model output:")
-        pprint(output)
         self._update_output_values(output)
 
-    def _evaluate_and_update_plot(self) -> None:
-        self._evaluate_model()
-
-        self._update_plot()
+    def evaluate_and_update_plot(self) -> None:
+        self.evaluate_model()
+        self.update_plot()
 
     def _initialize_ui(self) -> None:
-        with SinglePageLayout(self.server) as layout:
+        with SinglePageLayout(self.state_manager.server) as layout:
             with layout.toolbar:
                 pass
 
@@ -105,34 +113,27 @@ class UI:
                 pass
 
     def _initialize_content(self) -> None:
-        self.input_variables = sorted(
-            self.model.input_variables, key=lambda var: var.name
-        )
-
-        self.output_variables = sorted(
-            self.model.output_variables, key=lambda var: var.name
-        )
-
         VBtn(
             "Run Model",
-            click=self._evaluate_and_update_plot,
+            click=self.evaluate_and_update_plot,
         )
+        with VDivider():
+            Div("Output Variables")
+        self._initialize_output_widgets()
 
         with VContainer(fluid=True):
+            with VDivider():
+                Div("Plot")
             with VRow():
                 with VCol():
-                    with VDivider():
-                        Div("Output Variables")
-                    self._initialize_output_widgets(self.output_variables)
-                with VCol():
-                    with VDivider():
-                        Div("Plot")
                     self._initialize_timeseries_plot()
+
+                with VCol():
                     self._initialize_2d_histogram_plot()
 
         with VDivider():
             Div("Input Variables")
-        self._initialize_input_widgets(self.input_variables)
+        self._initialize_input_widgets()
 
     def _initialize_2d_histogram_variables(self) -> None:
         with VContainer(fluid=True):
@@ -141,24 +142,22 @@ class UI:
                 v_model=("hist_x_axis",),
                 items=("x_select",),
                 label="X Variable",
-                update_modelValue=self.ctrl.update_plot,
+                # update_modelValue=self.ctrl.update_plot,
             )
             # y variable
             VSelect(
                 v_model=("hist_y_axis",),
                 items=("y_select",),
                 label="Y Variable",
-                update_modelValue=self.ctrl.update_plot,
+                # update_modelValue=self.ctrl.update_plot,
             )
 
-    def _initialize_output_widgets(
-        self, output_variables: list[ScalarVariable]
-    ) -> None:
+    def _initialize_output_widgets(self) -> None:
         with VContainer(fluid=True):
-            for var in output_variables:
-                name = var.name
-
-                state_key = f"output_variables_{sanitize_string(name)}"
+            for name in self.state_manager.output_variable_names:
+                state_key = (
+                    f"{self.state_manager.PREFIX_OUTPUT}_{sanitize_string(name)}"
+                )
                 with VRow():
                     with VCol():
                         Div(f"{name}")
@@ -168,12 +167,12 @@ class UI:
                             readonly=True,
                         )
 
-    def _initialize_input_widgets(self, input_variables: list[ScalarVariable]) -> None:
+    def _initialize_input_widgets(self) -> None:
         with VContainer(fluid=True):
-            for index, var in enumerate(input_variables):
-                self._create_slider_for_variable(index, var)
+            for var in self.model.input_variables:
+                self._create_slider_for_variable(var)
 
-    def _create_slider_for_variable(self, index: int, var: ScalarVariable) -> None:
+    def _create_slider_for_variable(self, var: ScalarVariable) -> None:
         name = var.name
 
         if var.value_range is None:
@@ -185,9 +184,7 @@ class UI:
         min = value_range[0]
 
         step = (max - min) / 100.0
-        state_key = f"input_variables_{sanitize_string(name)}"
-
-        print(f"Creating slider for variable '{name}' with state key '{state_key}'")
+        state_key = f"{self.state_manager.PREFIX_INPUT}_{sanitize_string(name)}"
 
         if step <= 0:
             with VRow():
@@ -211,9 +208,7 @@ class UI:
                             min=min,
                             max=max,
                             step=step,
-                            # start="flushState('input_variables')",
-                            # thumb_label=True,
-                            end=self._evaluate_and_update_plot,
+                            end=self.evaluate_and_update_plot,
                         )
                         Div(f"{round(max, 2)}")
                 with VCol():
@@ -224,30 +219,22 @@ class UI:
     def _collect_values_by_variable_name(
         self, variable_names: list[str]
     ) -> pd.DataFrame:
-        output_plot_data = pd.DataFrame.from_dict(self.state["output_plot_data"]).copy(
-            deep=True
-        )
+        output_df = pd.DataFrame.from_dict(self.state["output_plot_data"]).copy()
 
-        # for output_var in list(output_plot_data.keys()):
-        #     if output_var not in variable_names:
-        #         output_plot_data.pop(output_var)
-        return output_plot_data
+        # Remove any columns not in variable_names
+        output_df = output_df[variable_names]
+
+        return output_df
 
     def _collect_plot_variables(self) -> list[str]:
         plot_variables: list[str] = []
-        for var in self.model.output_variables:
-            state_key = f"plot_variable_{sanitize_string(var.name)}"
+        for name in self.state_manager.output_variable_names:
+            state_key = (
+                f"{self.state_manager.PREFIX_DISPLAY_OUTPUT}_{sanitize_string(name)}"
+            )
             if self.state.has(state_key) and self.state[state_key]:
-                plot_variables.append(var.name)
-
-        pprint("Collecting plot variables:")
-        pprint(self._collect_values_by_variable_name(plot_variables))
+                plot_variables.append(name)
         return plot_variables
-
-    def _handle_variable_plot_change(
-        self,
-    ) -> None:
-        self._update_plot()
 
     def _initialize_2d_histogram_plot(self) -> None:
         with VContainer(fluid=True, style="position: relative; height: 400px;"):
@@ -257,35 +244,18 @@ class UI:
             classes="d-flex flex-wrap",
         ):
             self._initialize_2d_histogram_variables()
-            self._evaluate_and_update_plot()
 
-    def _initialize_2d_histogram_figure(
-        self, data: pd.DataFrame | None = None
-    ) -> Figure:
-        self.figure_hist = self._create_2d_histogram_figure(data)
+    def _initialize_2d_histogram_figure(self) -> Figure:
+        self.figure_hist = self._create_2d_histogram_figure()
         return Figure(figure=self.figure_hist, responsive=True)
 
     def _create_2d_histogram_figure(
-        self, data: pd.DataFrame | None = None
+        self,
     ) -> go.Figure:
-        x_data: str
-        y_data: str
+        data = pd.DataFrame.from_dict(self.state["output_plot_data"])
 
-        if data is None:
-            data = pd.DataFrame(
-                {
-                    "var1": [np.random.rand() for _ in range(10)],
-                    "var2": [np.random.rand() for _ in range(10)],
-                }
-            )
-            data = pd.DataFrame(data)
-            x_data = "var1"
-            y_data = "var2"
-        else:
-            x_data = self.state["hist_x_axis"]
-            y_data = self.state["hist_y_axis"]
-
-        pprint((x_data, y_data))
+        x_data = self.state["hist_x_axis"]
+        y_data = self.state["hist_y_axis"]
 
         fig = px.density_heatmap(data_frame=data, x=x_data, y=y_data)
         return fig
@@ -301,29 +271,25 @@ class UI:
             self._create_variables_to_plot()
 
     def _create_variables_to_plot(self) -> None:
-        output_variable_names = [var.name for var in self.model.output_variables]
-        for var_name in output_variable_names:
+        for var_name in self.state_manager.output_variable_names:
             with VCol():
                 VCheckbox(
-                    v_model=(f"plot_variable_{sanitize_string(var_name)}", True),
+                    v_model=(
+                        f"{self.state_manager.PREFIX_DISPLAY_OUTPUT}_{sanitize_string(var_name)}",
+                    ),
                     label=var_name,
-                    change=self._handle_variable_plot_change,
+                    change=self.ctrl.update_plot,
                 )
 
-    def _initialize_timeseries_figure(self, data: pd.DataFrame | None = None) -> Figure:
-        self.figure_time = self._create_timeseries_figure(data)
+    def _initialize_timeseries_figure(self) -> Figure:
+        self.figure_time = self._create_timeseries_figure()
         return Figure(figure=self.figure_time, responsive=True)
 
     def _create_timeseries_figure(
         self,
-        data: pd.DataFrame | None = None,
     ) -> go.Figure:
-        if data is None:
-            data = {
-                "var1": [np.random.rand() for _ in range(10)],
-                "var2": [np.random.rand() for _ in range(10)],
-            }
-            data = pd.DataFrame(data)
+        output_plot_variables = self._collect_plot_variables()
+        data = self._collect_values_by_variable_name(output_plot_variables)
 
         plots = []
 
@@ -340,17 +306,16 @@ class UI:
 
         return go.Figure(data=plots)
 
-    def _update_figure(self, data: pd.DataFrame | None = None) -> None:
-        fig1 = self._create_timeseries_figure(data)
-        fig2 = self._create_2d_histogram_figure(data)
+    def _update_figure(self) -> None:
+        fig1 = self._create_timeseries_figure()
+        fig2 = self._create_2d_histogram_figure()
 
-        print("Updating figures")
-        self.figure_time.update(plotly_fig=fig1)  # pyright: ignore[reportUnknownMemberType]
-        self.figure_hist.update(plotly_fig=fig2)  # pyright: ignore[reportUnknownMemberType]
+        self.figure_time.update(  # pyright: ignore[reportUnknownMemberType]
+            plotly_fig=fig1
+        )
+        self.figure_hist.update(  # pyright: ignore[reportUnknownMemberType]
+            plotly_fig=fig2
+        )
 
-    def _update_plot(self) -> None:
-        self.state.flush()
-        output_plot_variables = self._collect_plot_variables()
-
-        data = self._collect_values_by_variable_name(output_plot_variables)
-        self._update_figure(data)
+    def update_plot(self) -> None:
+        self._update_figure()
