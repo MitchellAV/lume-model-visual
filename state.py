@@ -70,6 +70,10 @@ class StateManager:
         self.server.state["x_select"] = x_items
         self.server.state["y_select"] = y_items
 
+        # Initialize streaming state
+        self.server.state["streaming_active"] = False
+        self.server.state["streaming_status"] = "Start Streaming"
+
     @property
     def state(self) -> State:
         return self.server.state

@@ -1,8 +1,9 @@
 from typing import Any
+import asyncio
 
 from trame_server import Server
 from trame_server.core import BackendType, ExecModeType
-from trame.decorators import change
+from trame.decorators import change, life_cycle, controller
 
 from trame.app import TrameApp
 
@@ -28,24 +29,49 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
             client_type="vue3",
         )
 
-        self.server.hot_reload = True
-
         self.load_model(model_path)
         self.state_manager = StateManager(self.server, self.model)
         self.ui = UI(self.state_manager)
-        # self.start_clock()
+        self.streaming_enabled = False
 
     def load_model(self, model_path: str) -> None:
         self.model = TorchModel(model_path)
 
-    # @self.server.controller.add_task()
-    # async def update_loop():
-    #     pass
+    @controller.add_task("on_server_ready")  # type: ignore
+    async def data_stream_task(self, *args: Any, **kwargs: Any) -> None:
+        """Async task that simulates streaming data and updates plots."""
+        print("Starting data stream task...")
+        while True:
+            await asyncio.sleep(self.DEFAULT_UPDATE_INTERVAL)
+
+            if self.streaming_enabled:
+                print("Updating model outputs with new streaming data...")
+                # Evaluate model and update plots
+                self.ui.ctrl.evaluate_and_update_plot()
+                # Required to ensure UI updates are sent to the client
+                self.state.flush()
+
+    @controller.add("start_streaming")  # type: ignore
+    def start_streaming(self, *args: Any, **kwargs: Any) -> None:
+        print("Starting data stream...")
+        self.streaming_enabled = True
+        self.server.state["streaming_active"] = True
+        self.server.state["streaming_status"] = "Stop Streaming"
+
+    @controller.add("stop_streaming")  # type: ignore
+    def stop_streaming(self, *args: Any, **kwargs: Any) -> None:
+        print("Stopping data stream...")
+        self.streaming_enabled = False
+        self.server.state["streaming_active"] = False
+        self.server.state["streaming_status"] = "Start Streaming"
 
     @change("hist_x_axis", "hist_y_axis")  # type: ignore
     def handle_hist_axis_change(self, *args: Any, **kwargs: Any) -> None:
-        print("Axis changed, updating plot...")
         self.ui.update_plot()
+
+    @life_cycle.error  # type: ignore
+    def handle_error(self, error: Exception) -> None:
+        raise error
 
     def start(
         self,

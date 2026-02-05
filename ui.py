@@ -54,6 +54,13 @@ class UI:
     def _initialize_event_listeners(self) -> None:
         self.ctrl.update_plot = self.update_plot
         self.ctrl.evaluate_and_update_plot = self.evaluate_and_update_plot
+        self.ctrl.toggle_streaming = self.toggle_streaming
+
+    def toggle_streaming(self) -> None:
+        if self.state["streaming_active"]:
+            self.ctrl.stop_streaming()
+        else:
+            self.ctrl.start_streaming()
 
     def _collect_input_values(self) -> dict[str, float]:
         input_dict: dict[str, float] = {}
@@ -107,6 +114,7 @@ class UI:
             )
 
             with layout.content:
+                layout.content.style = "max-height: 90vh;"
                 self._initialize_content()
 
             with layout.footer:
@@ -114,12 +122,11 @@ class UI:
 
     def _initialize_content(self) -> None:
         VBtn(
-            "Run Model",
-            click=self.evaluate_and_update_plot,
+            "{{ streaming_status }}",
+            position="fixed",
+            style="z-index: 1000;",
+            click=self.ctrl.toggle_streaming,
         )
-        with VDivider():
-            Div("Output Variables")
-        self._initialize_output_widgets()
 
         with VContainer(fluid=True):
             with VDivider():
@@ -130,16 +137,22 @@ class UI:
 
                 with VCol():
                     self._initialize_2d_histogram_plot()
-
-        with VDivider():
-            Div("Input Variables")
-        self._initialize_input_widgets()
+        with VContainer(fluid=True):
+            with VRow():
+                with VCol():
+                    with VDivider():
+                        Div("Input Variables")
+                    self._initialize_input_widgets()
+                with VCol():
+                    with VDivider():
+                        Div("Output Variables")
+                    self._initialize_output_widgets()
 
     def _initialize_2d_histogram_variables(self) -> None:
         with VContainer(fluid=True):
             # x variable
             VSelect(
-                v_model=("hist_x_axis",),
+                v_model=("hist_x_axis", "1:4"),
                 items=("x_select",),
                 label="X Variable",
                 # update_modelValue=self.ctrl.update_plot,
@@ -168,7 +181,7 @@ class UI:
                         )
 
     def _initialize_input_widgets(self) -> None:
-        with VContainer(fluid=True):
+        with VContainer(fluid=True, max_height="500px", style="overflow-y: auto;"):
             for var in self.model.input_variables:
                 self._create_slider_for_variable(var)
 
@@ -257,7 +270,9 @@ class UI:
         x_data = self.state["hist_x_axis"]
         y_data = self.state["hist_y_axis"]
 
-        fig = px.density_heatmap(data_frame=data, x=x_data, y=y_data)
+        fig = px.density_heatmap(
+            data_frame=data, x=x_data, y=y_data, nbinsx=20, nbinsy=20
+        )
         return fig
 
     def _initialize_timeseries_plot(self) -> None:
