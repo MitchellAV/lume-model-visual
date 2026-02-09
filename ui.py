@@ -270,8 +270,14 @@ class UI:
         x_data = self.state["hist_x_axis"]
         y_data = self.state["hist_y_axis"]
 
+        HISTOGRAM_BINS = None  # Use default binning strategy of plotly
+
         fig = px.density_heatmap(
-            data_frame=data, x=x_data, y=y_data, nbinsx=20, nbinsy=20
+            data_frame=data,
+            x=x_data,
+            y=y_data,
+            nbinsx=HISTOGRAM_BINS,
+            nbinsy=HISTOGRAM_BINS,
         )
         return fig
 
