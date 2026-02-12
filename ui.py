@@ -67,7 +67,8 @@ class UI:
         for var in self.model.input_variables:
             state_key = f"input_variables_{sanitize_string(var.name)}"
             state_value = self.state[state_key]
-            if state_value is not None:
+            bad_values = [None, "", "."]
+            if state_value not in bad_values:
                 try:
                     input_dict[var.name] = float(state_value)
                 except ValueError as e:
