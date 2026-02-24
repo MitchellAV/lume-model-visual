@@ -91,7 +91,7 @@ class UI:
 
         for key, value in output.items():
             state_key = f"{self.state_manager.PREFIX_OUTPUT}_{sanitize_string(key)}"
-            self.state[state_key] = float(value)
+            self.state_manager.set_state(state_key, float(value))
 
     def evaluate_model(self) -> None:
         input_dict = self._collect_input_values()
@@ -271,7 +271,7 @@ class UI:
         x_data = self.state["hist_x_axis"]
         y_data = self.state["hist_y_axis"]
 
-        HISTOGRAM_BINS = None  # Use default binning strategy of plotly
+        HISTOGRAM_BINS = 100  # Use default binning strategy of plotly
 
         fig = px.density_heatmap(
             data_frame=data,

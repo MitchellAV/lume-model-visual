@@ -6,7 +6,7 @@ from trame_server.controller import Controller
 
 from lume_model.models import TorchModel
 
-from util import sanitize_string
+from util import sanitize_string, validate_state_key
 
 
 class StateManager:
@@ -25,24 +25,43 @@ class StateManager:
 
         self._initialize_state()
 
+    def set_state(self, key: str, value: object) -> None:
+        """Set a state value with server-side key validation.
+
+        This validates the key before setting it in trame state, catching
+        invalid characters (like ':') that would cause silent client-side
+        JavaScript errors.
+
+        Args:
+            key: The state key (must be a valid JavaScript identifier).
+            value: The value to set.
+        Raises:
+            ValueError: If the key is not a valid JavaScript identifier.
+        """
+        validate_state_key(key)
+        self.state[key] = value
+
     def _initialize_state(self) -> None:
         """Initialize state values for all input variables before UI creation."""
 
         for var in self.model.input_variables:
             if var.default_value is not None:
-                self.state[f"{self.PREFIX_INPUT}_{sanitize_string(var.name)}"] = (
-                    var.default_value
+                self.set_state(
+                    f"{self.PREFIX_INPUT}_{sanitize_string(var.name)}",
+                    var.default_value,
                 )
                 self.input_variable_names.append(var.name)
 
         column_names: list[str] = []
 
         for var in self.model.output_variables:
-            self.state[f"{self.PREFIX_OUTPUT}_{sanitize_string(var.name)}"] = (
-                self.DEFAULT_OUTPUT_VALUE
+            self.set_state(
+                f"{self.PREFIX_OUTPUT}_{sanitize_string(var.name)}",
+                self.DEFAULT_OUTPUT_VALUE,
             )
-            self.state[f"{self.PREFIX_DISPLAY_OUTPUT}_{sanitize_string(var.name)}"] = (
-                self.DEFAULT_DISPLAY_OUTPUT_VALUE
+            self.set_state(
+                f"{self.PREFIX_DISPLAY_OUTPUT}_{sanitize_string(var.name)}",
+                self.DEFAULT_DISPLAY_OUTPUT_VALUE,
             )
 
             column_names.append(var.name)

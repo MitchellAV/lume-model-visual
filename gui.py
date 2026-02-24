@@ -70,8 +70,12 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
         self.ui.update_plot()
 
     @life_cycle.error  # type: ignore
-    def handle_error(self, error: Exception) -> None:
+    def on_error(self, error: Exception) -> None:
         raise error
+
+    @life_cycle.exception  # type: ignore
+    def on_exception(self, exception: Exception) -> None:
+        raise exception
 
     def start(
         self,
