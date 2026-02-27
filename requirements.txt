@@ -1,6 +1,2 @@
 trame
 trame-vuetify
-lume-model
-pre-commit
-pandas
-numpy
