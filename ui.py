@@ -1,5 +1,5 @@
-from trame_server.state import State
-from trame_server.controller import Controller
+from typing import cast
+
 
 import numpy as np
 import pandas as pd
@@ -24,7 +24,7 @@ from trame.widgets.plotly import Figure
 from lume_model.models import TorchModel
 from lume_model.variables import ScalarVariable
 
-from state import StateManager
+from state import Ctrl, St, StateManager
 
 from util import sanitize_string
 
@@ -44,17 +44,21 @@ class UI:
         return self.state_manager.model
 
     @property
-    def state(self) -> State:
+    def state(self) -> St:
         return self.state_manager.state
 
     @property
-    def ctrl(self) -> Controller:
+    def ctrl(self) -> Ctrl:
         return self.state_manager.ctrl
 
     def _initialize_event_listeners(self) -> None:
         self.ctrl.update_plot = self.update_plot
         self.ctrl.evaluate_and_update_plot = self.evaluate_and_update_plot
         self.ctrl.toggle_streaming = self.toggle_streaming
+
+    def evaluate_and_update_plot(self) -> None:
+        self.evaluate_model()
+        self.update_plot()
 
     def toggle_streaming(self) -> None:
         if self.state["streaming_active"]:
@@ -78,7 +82,10 @@ class UI:
         return input_dict
 
     def _update_output_values(self, output: dict[str, float]) -> None:
-        output_df = pd.DataFrame.from_dict(self.state["output_plot_data"])
+        output_df = cast(
+            pd.DataFrame,
+            pd.DataFrame.from_dict(self.state["output_plot_data"]),
+        )
 
         # cast all columns to float
         row = {col: float(output[col]) for col in output_df.columns}
@@ -86,7 +93,9 @@ class UI:
         new_row = pd.DataFrame([row], columns=output_df.columns)
         output_df = pd.concat([output_df, new_row], ignore_index=True)
 
-        self.state["output_plot_data"] = output_df.to_dict(orient="list")
+        self.state_manager.set_state(
+            "output_plot_data", output_df.to_dict(orient="list")
+        )
         self.state.dirty("output_plot_data")
 
         for key, value in output.items():
@@ -97,10 +106,6 @@ class UI:
         input_dict = self._collect_input_values()
         output = self.model.evaluate(input_dict)
         self._update_output_values(output)
-
-    def evaluate_and_update_plot(self) -> None:
-        self.evaluate_model()
-        self.update_plot()
 
     def _initialize_ui(self) -> None:
         with SinglePageLayout(self.state_manager.server) as layout:
@@ -124,10 +129,18 @@ class UI:
     def _initialize_content(self) -> None:
         VBtn(
             "{{ streaming_status }}",
-            position="fixed",
+            position="left",
             style="z-index: 1000;",
             click=self.ctrl.toggle_streaming,
         )
+
+        with VContainer(fluid=True):
+            VBtn(
+                "{{ mode_options[mode].title }}",
+                position="right",
+                style="z-index: 1000;",
+                click=self.ctrl.toggle_mode,
+            )
 
         with VContainer(fluid=True):
             with VDivider():
@@ -271,7 +284,7 @@ class UI:
         x_data = self.state["hist_x_axis"]
         y_data = self.state["hist_y_axis"]
 
-        HISTOGRAM_BINS = 100  # Use default binning strategy of plotly
+        HISTOGRAM_BINS = 10  # Use default binning strategy of plotly
 
         fig = px.density_heatmap(
             data_frame=data,

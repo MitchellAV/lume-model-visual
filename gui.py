@@ -45,11 +45,16 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
             await asyncio.sleep(self.DEFAULT_UPDATE_INTERVAL)
 
             if self.streaming_enabled:
-                print("Updating model outputs with new streaming data...")
-                # Evaluate model and update plots
-                self.ui.ctrl.evaluate_and_update_plot()
+                mode = self.state_manager.state["mode"]
+
+                if mode == "0":  # Streaming Mode
+                    # Simulate streaming data by generating random input values
+                    self.state_manager.ctrl.stream_pv_data()
+                elif mode == "1":  # Manual Mode
+                    # Evaluate model and update plots
+                    self.state_manager.ctrl.evaluate_and_update_plot()
                 # Required to ensure UI updates are sent to the client
-                self.state.flush()
+                self.state_manager.state.flush()
 
     @controller.add("start_streaming")  # type: ignore
     def start_streaming(self, *args: Any, **kwargs: Any) -> None:
