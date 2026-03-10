@@ -250,8 +250,6 @@ class StateManager:
 
         value_dict = dict(zip(PV_OUTPUT_NAMES, values))
 
-        pprint.pprint(value_dict)
-
         self._update_plot_data(value_dict)
 
     def _update_plot_data(self, output: dict[str, float | None]) -> None:
@@ -264,13 +262,23 @@ class StateManager:
         )
 
         row = {col: output.get(col, None) for col in output_df.columns}
+
+        pprint.pprint(row)
+
         new_row = pd.DataFrame([row], columns=output_df.columns)
+
+        pprint.pprint(new_row)
+
         output_df = pd.concat([output_df, new_row], ignore_index=True)
+
+        pprint.pprint(output_df)
         # if self.state.mode == "1":
         #     self.interactive_history_df = output_df
         # else:
         #     self.streaming_history_df = output_df
         self.set_state("plot_data", output_df.to_dict(orient="list"))
+
+        pprint.pprint(self.state.plot_data)
         self.state.dirty("plot_data")
 
     def reset_state(self) -> None:
