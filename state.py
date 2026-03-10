@@ -255,22 +255,22 @@ class StateManager:
     def _update_plot_data(self, output: dict[str, float | None]) -> None:
         """Update the plot data in state with new model outputs."""
         # Append new output values to the history DataFrame
-        output_df = (
+        history_df = (
             self.interactive_history_df
             if self.state.mode == "1"
             else self.streaming_history_df
         )
 
-        row = {col: output.get(col, None) for col in output_df.columns}
+        row = {col: output.get(col, None) for col in history_df.columns}
         print("New output row:")
         pprint.pprint(row)
 
-        new_row = pd.DataFrame([row], columns=output_df.columns)
+        new_row = pd.DataFrame([row], columns=history_df.columns)
 
         print("New row DataFrame:")
         print(new_row.head())
 
-        output_df = pd.concat([output_df, new_row], ignore_index=True)
+        output_df = pd.concat([history_df, new_row], ignore_index=True)
 
         print("Updated output DataFrame:")
         print(output_df.head())
