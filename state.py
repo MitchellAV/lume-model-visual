@@ -268,12 +268,12 @@ class StateManager:
         new_row = pd.DataFrame([row], columns=output_df.columns)
 
         print("New row DataFrame:")
-        pprint.pprint(new_row)
+        print(new_row.head())
 
         output_df = pd.concat([output_df, new_row], ignore_index=True)
 
         print("Updated output DataFrame:")
-        pprint.pprint(output_df)
+        print(output_df.head())
         # if self.state.mode == "1":
         #     self.interactive_history_df = output_df
         # else:
