@@ -69,7 +69,9 @@ class UI:
     def _collect_input_values(self) -> dict[str, float]:
         input_dict: dict[str, float] = {}
         for var in self.model.input_variables:
-            state_key = f"input_variables_{sanitize_string(var.name)}"
+            state_key = f"{self.state_manager.PREFIX_INTERACTIVE_INPUT}_{sanitize_string(var.name)}"
+            if not self.state.has(state_key):
+                continue
             state_value = self.state[state_key]
             bad_values = [None, "", "."]
             if state_value not in bad_values:
@@ -84,7 +86,7 @@ class UI:
     def _update_output_values(self, output: dict[str, float]) -> None:
         output_df = cast(
             pd.DataFrame,
-            pd.DataFrame.from_dict(self.state["output_plot_data"]),
+            pd.DataFrame.from_dict(self.state["plot_data"]),
         )
 
         # cast all columns to float
@@ -93,13 +95,13 @@ class UI:
         new_row = pd.DataFrame([row], columns=output_df.columns)
         output_df = pd.concat([output_df, new_row], ignore_index=True)
 
-        self.state_manager.set_state(
-            "output_plot_data", output_df.to_dict(orient="list")
-        )
-        self.state.dirty("output_plot_data")
+        self.state_manager.set_state("plot_data", output_df.to_dict(orient="list"))
+        self.state.dirty("plot_data")
 
         for key, value in output.items():
-            state_key = f"{self.state_manager.PREFIX_OUTPUT}_{sanitize_string(key)}"
+            state_key = (
+                f"{self.state_manager.PREFIX_INTERACTIVE_OUTPUT}_{sanitize_string(key)}"
+            )
             self.state_manager.set_state(state_key, float(value))
 
     def evaluate_model(self) -> None:
@@ -182,9 +184,7 @@ class UI:
     def _initialize_output_widgets(self) -> None:
         with VContainer(fluid=True):
             for name in self.state_manager.output_variable_names:
-                state_key = (
-                    f"{self.state_manager.PREFIX_OUTPUT}_{sanitize_string(name)}"
-                )
+                state_key = f"{self.state_manager.PREFIX_INTERACTIVE_OUTPUT}_{sanitize_string(name)}"
                 with VRow():
                     with VCol():
                         Div(f"{name}")
@@ -206,12 +206,12 @@ class UI:
             raise ValueError(
                 f"Cannot create slider for variable '{name}' without value range."
             )
-        value_range = var.value_range
-        max = value_range[1]
-        min = value_range[0]
+        min_value, max_value = var.value_range
 
-        step = (max - min) / 100.0
-        state_key = f"{self.state_manager.PREFIX_INPUT}_{sanitize_string(name)}"
+        step = (max_value - min_value) / 100.0
+        state_key = (
+            f"{self.state_manager.PREFIX_INTERACTIVE_INPUT}_{sanitize_string(name)}"
+        )
 
         if step <= 0:
             with VRow():
@@ -229,15 +229,15 @@ class UI:
                     with VRow(
                         style="margin: 0 auto;",
                     ):
-                        Div(f"{round(min, 2)} ")
+                        Div(f"{round(min_value, 2)} ")
                         VSlider(
                             v_model=(state_key,),
-                            min=min,
-                            max=max,
+                            min=min_value,
+                            max=max_value,
                             step=step,
                             end=self.evaluate_and_update_plot,
                         )
-                        Div(f"{round(max, 2)}")
+                        Div(f"{round(max_value, 2)}")
                 with VCol():
                     VTextField(
                         v_model=(state_key,),
@@ -246,7 +246,7 @@ class UI:
     def _collect_values_by_variable_name(
         self, variable_names: list[str]
     ) -> pd.DataFrame:
-        output_df = pd.DataFrame.from_dict(self.state["output_plot_data"]).copy()
+        output_df = pd.DataFrame.from_dict(self.state["plot_data"]).copy()
 
         # Remove any columns not in variable_names
         output_df = output_df[variable_names]
@@ -256,9 +256,7 @@ class UI:
     def _collect_plot_variables(self) -> list[str]:
         plot_variables: list[str] = []
         for name in self.state_manager.output_variable_names:
-            state_key = (
-                f"{self.state_manager.PREFIX_DISPLAY_OUTPUT}_{sanitize_string(name)}"
-            )
+            state_key = f"{self.state_manager.PREFIX_INTERACTIVE_OUTPUT_DISPLAY}_{sanitize_string(name)}"
             if self.state.has(state_key) and self.state[state_key]:
                 plot_variables.append(name)
         return plot_variables
@@ -279,7 +277,7 @@ class UI:
     def _create_2d_histogram_figure(
         self,
     ) -> go.Figure:
-        data = pd.DataFrame.from_dict(self.state["output_plot_data"])
+        data = pd.DataFrame.from_dict(self.state["plot_data"])
 
         x_data = self.state["hist_x_axis"]
         y_data = self.state["hist_y_axis"]
@@ -310,7 +308,7 @@ class UI:
             with VCol():
                 VCheckbox(
                     v_model=(
-                        f"{self.state_manager.PREFIX_DISPLAY_OUTPUT}_{sanitize_string(var_name)}",
+                        f"{self.state_manager.PREFIX_INTERACTIVE_OUTPUT_DISPLAY}_{sanitize_string(var_name)}",
                     ),
                     label=var_name,
                     change=self.ctrl.update_plot,

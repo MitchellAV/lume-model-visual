@@ -36,3 +36,32 @@ def validate_state_key(key: str) -> None:
             f"(letters, digits, underscores, dollar signs; cannot start with a digit). "
             f"Use sanitize_string() to convert variable names to safe keys."
         )
+
+
+def to_precision(value: float, precision: int = 3) -> float:
+    """Round a value to a specified number of decimal places.
+
+    Args:
+        value: The value to round.
+        precision: The number of decimal places to round to (default is 2).
+    Returns:
+        float: The rounded value.
+    """
+    return round(value, precision)
+
+
+def fix_out_of_range_value(
+    value: float, value_range: tuple[float, float] | None
+) -> float:
+    min_range = value_range[0] if value_range is not None else None
+    max_range = value_range[1] if value_range is not None else None
+
+    output_value = value
+
+    if min_range is not None and value < min_range:
+        output_value = min_range
+    if max_range is not None and value > max_range:
+        output_value = max_range
+
+    output_value = to_precision(output_value)
+    return output_value

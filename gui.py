@@ -45,7 +45,7 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
             await asyncio.sleep(self.DEFAULT_UPDATE_INTERVAL)
 
             if self.streaming_enabled:
-                mode = self.state_manager.state["mode"]
+                mode = self.state_manager.state.mode
 
                 if mode == "0":  # Streaming Mode
                     # Simulate streaming data by generating random input values

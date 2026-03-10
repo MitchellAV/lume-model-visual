@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Any, Callable, cast
 
 import pandas as pd
 
@@ -8,7 +8,7 @@ from trame_server.controller import Controller
 
 from lume_model.models import TorchModel
 
-from util import sanitize_string, validate_state_key
+from util import fix_out_of_range_value, sanitize_string, validate_state_key
 
 import epics
 
@@ -41,15 +41,25 @@ class St(State):  # type: ignore[misc]
     hist_y_axis: str
     x_select: list[dict[str, str]]
     y_select: list[dict[str, str]]
-    output_plot_data: dict[str, list[float]]
+    plot_data: dict[str, list[float]]
+    mode: str
+    mode_options: list[dict[str, str]]
 
 
 class StateManager:
-    PREFIX_INPUT = "input_variables"
-    PREFIX_OUTPUT = "output_variables"
-    PREFIX_DISPLAY_OUTPUT = "display_output_variables"
+    PREFIX_INTERACTIVE_INPUT = "interactive_input_variable"
+    PREFIX_INTERACTIVE_OUTPUT = "interactive_output_variable"
+    PREFIX_INTERACTIVE_OUTPUT_DISPLAY = "interactive_output_display"
+
+    PREFIX_STREAMING_INPUT = "streaming_input_variable"
+    PREFIX_STREAMING_OUTPUT = "streaming_output_variable"
+    PREFIX_STREAMING_OUTPUT_DISPLAY = "streaming_output_display"
+
     DEFAULT_OUTPUT_VALUE = "N/A"
-    DEFAULT_DISPLAY_OUTPUT_VALUE = True
+    DEFAULT_OUTPUT_DISPLAY_VALUE = True
+
+    interactive_history_df = pd.DataFrame()
+    streaming_history_df = pd.DataFrame()
 
     input_variable_names: list[str] = []
     output_variable_names: list[str] = []
@@ -77,52 +87,92 @@ class StateManager:
         validate_state_key(key)
         self.state[key] = value
 
-    def _initialize_state(self) -> None:
-        """Initialize state values for all input variables before UI creation."""
+    def _initialize_interactive_variables(self) -> None:
+        """Initialize state values for interactive mode variables."""
+        # This method can be expanded to include any additional initialization logic
 
+        # Input Variables
         for var in self.model.input_variables:
             if var.default_value is not None:
-                min_range = var.value_range[0] if var.value_range is not None else None
-                max_range = var.value_range[1] if var.value_range is not None else None
+                corrected_default = fix_out_of_range_value(
+                    var.default_value, var.value_range
+                )
 
-                # Ensure default value is within specified range if range is defined
-                corrected_default = var.default_value
-                if min_range is not None and max_range is not None:
-                    if var.default_value < min_range:
-                        corrected_default = min_range
-                    elif var.default_value > max_range:
-                        corrected_default = max_range
-
-                corrected_default = round(corrected_default, 2)
-
-                # print(
-                #     f'Initializing input variable "{var.name}" with default value: {corrected_default}'
-                # )
+                key = f"{self.PREFIX_INTERACTIVE_INPUT}_{sanitize_string(var.name)}"
 
                 self.set_state(
-                    f"{self.PREFIX_INPUT}_{sanitize_string(var.name)}",
+                    key,
                     corrected_default,
                 )
                 self.input_variable_names.append(var.name)
 
         column_names: list[str] = []
 
+        # Output Variables
         for var in self.model.output_variables:
+            output_key = f"{self.PREFIX_INTERACTIVE_OUTPUT}_{sanitize_string(var.name)}"
+
             self.set_state(
-                f"{self.PREFIX_OUTPUT}_{sanitize_string(var.name)}",
+                output_key,
                 self.DEFAULT_OUTPUT_VALUE,
             )
+
+            # Display checkbox state for each output variable
+            display_key = (
+                f"{self.PREFIX_INTERACTIVE_OUTPUT_DISPLAY}_{sanitize_string(var.name)}"
+            )
+
             self.set_state(
-                f"{self.PREFIX_DISPLAY_OUTPUT}_{sanitize_string(var.name)}",
-                self.DEFAULT_DISPLAY_OUTPUT_VALUE,
+                display_key,
+                self.DEFAULT_OUTPUT_DISPLAY_VALUE,
             )
 
             column_names.append(var.name)
             self.output_variable_names.append(var.name)
 
-        output_df = pd.DataFrame(columns=column_names)
-        output_dict = output_df.to_dict(orient="list")
-        self.state["output_plot_data"] = output_dict
+        self.interactive_history_df = pd.DataFrame(columns=column_names)
+        output_dict = self.interactive_history_df.to_dict(orient="list")
+        self.set_state("plot_data", output_dict)
+
+    def _initialize_streaming_variables(self) -> None:
+        """Initialize state values for streaming mode variables."""
+        # Input Variables
+        # No input variables for streaming mode since data is generated from PVs
+
+        column_names: list[str] = []
+
+        # Output Variables
+        for var in PV_OUTPUT_NAMES:
+            output_key = f"{self.PREFIX_STREAMING_OUTPUT}_{sanitize_string(var)}"
+
+            self.set_state(
+                output_key,
+                self.DEFAULT_OUTPUT_VALUE,
+            )
+
+            # Display checkbox state for each output variable
+            display_key = (
+                f"{self.PREFIX_STREAMING_OUTPUT_DISPLAY}_{sanitize_string(var)}"
+            )
+
+            self.set_state(
+                display_key,
+                self.DEFAULT_OUTPUT_DISPLAY_VALUE,
+            )
+
+            column_names.append(var)
+            self.output_variable_names.append(var)
+
+        self.streaming_history_df = pd.DataFrame(columns=column_names)
+        output_dict = self.streaming_history_df.to_dict(orient="list")
+        self.set_state("plot_data", output_dict)
+
+    def _initialize_variables(self) -> None:
+        mode = cast(str, self.state["mode"])
+        if mode == "0":
+            self._initialize_streaming_variables()
+        else:
+            self._initialize_interactive_variables()
 
         x_items = [
             {"title": name, "value": name} for name in self.output_variable_names
@@ -142,12 +192,11 @@ class StateManager:
         self.set_state("x_select", x_items)
         self.set_state("y_select", y_items)
 
-        # Initialize streaming state
-        self.set_state("streaming_active", False)
-        self.set_state("streaming_status", "Start Streaming")
+    def _initialize_state(self) -> None:
+        """Initialize state values for all input variables before UI creation."""
 
-        # Initialize mode state (if needed)
-        self.set_state("mode", "0")  # Default to "Streaming Mode"
+        # Initialize mode state (0 = Streaming Mode, 1 = Interactive Mode)
+        self.set_state("mode", "1")  # Default to "Interactive Mode"
         self.set_state(
             "mode_options",
             [
@@ -155,6 +204,12 @@ class StateManager:
                 {"title": "Interactive Mode", "value": "1"},
             ],
         )
+
+        # Initialize streaming state
+        self.set_state("streaming_active", False)
+        self.set_state("streaming_status", "Start Streaming")
+
+        self._initialize_variables()
 
     def _initialize_event_handlers(self) -> None:
         """Initialize event handlers for streaming and plot updates."""
@@ -173,11 +228,13 @@ class StateManager:
     def _toggle_mode(self) -> None:
         """Toggle between different modes (e.g., streaming vs. static)."""
         # This method can be expanded to include logic for toggling modes
-        current_mode = str(self.state["mode"])
+        current_mode = self.state.mode
         if current_mode == "0":
             self.set_state("mode", "1")
         else:
             self.set_state("mode", "0")
+
+        self.reset_state()  # Re-initialize variables for the new mode
 
     def _stream_pv_data(self) -> None:
         """Simulate streaming data by generating random input values."""
@@ -189,12 +246,60 @@ class StateManager:
         #     self.set_state(f"{self.PREFIX_OUTPUT}_{sanitize_string(pv_name)}", value)
 
         values = epics.caget_many(PV_OUTPUT_NAMES)
-        for pv_name, value in zip(PV_OUTPUT_NAMES, values):
-            print(f"Streaming PV {pv_name}: {value}")
+
+        value_dict = dict(zip(PV_OUTPUT_NAMES, values))
+
+        self._update_plot_data(value_dict)
+
+    def _update_plot_data(self, output: dict[str, float]) -> None:
+        """Update the plot data in state with new model outputs."""
+        # Append new output values to the history DataFrame
+        output_df = (
+            self.interactive_history_df
+            if self.state.mode == "1"
+            else self.streaming_history_df
+        )
+
+        row = {col: float(output[col]) for col in output_df.columns}
+        new_row = pd.DataFrame([row], columns=output_df.columns)
+        output_df = pd.concat([output_df, new_row], ignore_index=True)
+        # if self.state.mode == "1":
+        #     self.interactive_history_df = output_df
+        # else:
+        #     self.streaming_history_df = output_df
+        self.set_state("plot_data", output_df.to_dict(orient="list"))
+        self.state.dirty("plot_data")
 
     def reset_state(self) -> None:
         """Reset all state values to their defaults."""
-        self._initialize_state()
+
+        self.input_variable_names = []
+        self.output_variable_names = []
+
+        # mode = self.state.mode
+        # if mode == "0":
+        #     self.streaming_history_df = pd.DataFrame()
+        # else:
+        #     self.interactive_history_df = pd.DataFrame()
+
+        # self.delete_variable_state(mode)
+
+        self._initialize_variables()
+
+    def delete_variable_state(self, mode: str) -> None:
+        """Delete state values associated with a specific variable."""
+        prefix = "interactive" if mode == "1" else "streaming"
+        state_dict = cast(dict[str, Any], self.state.to_dict())
+
+        keys_to_delete: list[str] = []
+
+        for key in state_dict.keys():
+            if prefix in key:
+                keys_to_delete.append(key)
+
+        for state_key in keys_to_delete:
+            if self.state.has(state_key):
+                del self.state[state_key]
 
     @property
     def state(self) -> St:
