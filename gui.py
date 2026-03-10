@@ -34,8 +34,23 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
         self.ui = UI(self.state_manager)
         self.streaming_enabled = False
 
+        self._initialize_event_handlers()
+
     def load_model(self, model_path: str) -> None:
         self.model = TorchModel(model_path)
+
+    def _initialize_event_handlers(self) -> None:
+        self.state_manager.ctrl.toggle_mode = self._toggle_mode
+
+    def _toggle_mode(self, *args: Any, **kwargs: Any) -> None:
+        current_mode = self.state_manager.state.mode
+        if current_mode == "0":
+            self.state_manager.set_state("mode", "1")
+        else:
+            self.state_manager.set_state("mode", "0")
+
+        self.state_manager.reset_state()  # Re-initialize variables for the new mode
+        self.ui.reinitialize_ui()
 
     @controller.add_task("on_server_ready")  # type: ignore
     async def data_stream_task(self, *args: Any, **kwargs: Any) -> None:

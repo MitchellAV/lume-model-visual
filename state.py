@@ -1,5 +1,5 @@
 import pprint
-from typing import Any, Callable, cast
+from typing import Any, Callable, Literal, cast
 
 import pandas as pd
 
@@ -224,18 +224,18 @@ class StateManager:
         self.ctrl.update_plot = None  # type: ignore
         self.ctrl.evaluate_and_update_plot = None  # type: ignore
         self.ctrl.toggle_streaming = None  # type: ignore
-        self.ctrl.toggle_mode = self._toggle_mode
+        self.ctrl.toggle_mode = None  # type: ignore
 
-    def _toggle_mode(self) -> None:
-        """Toggle between different modes (e.g., streaming vs. static)."""
-        # This method can be expanded to include logic for toggling modes
-        current_mode = self.state.mode
-        if current_mode == "0":
-            self.set_state("mode", "1")
-        else:
-            self.set_state("mode", "0")
+    # def _toggle_mode(self) -> None:
+    #     """Toggle between different modes (e.g., streaming vs. static)."""
+    #     # This method can be expanded to include logic for toggling modes
+    #     current_mode = self.state.mode
+    #     if current_mode == "0":
+    #         self.set_state("mode", "1")
+    #     else:
+    #         self.set_state("mode", "0")
 
-        self.reset_state()  # Re-initialize variables for the new mode
+    #     self.reset_state()  # Re-initialize variables for the new mode
 
     def _stream_pv_data(self) -> None:
         """Simulate streaming data by generating random input values."""
@@ -339,3 +339,27 @@ class StateManager:
     @property
     def ctrl(self) -> Ctrl:
         return self.server.controller  # type: ignore
+
+    def get_mode_prefix(
+        self, type: Literal["input", "output", "output_display"]
+    ) -> str:
+        """Get the appropriate state key prefix based on the current mode and variable type."""
+        mode = self.state.mode
+        if mode == "1":  # Interactive mode
+            if type == "input":
+                return self.PREFIX_INTERACTIVE_INPUT
+            elif type == "output":
+                return self.PREFIX_INTERACTIVE_OUTPUT
+            elif type == "output_display":
+                return self.PREFIX_INTERACTIVE_OUTPUT_DISPLAY
+        else:  # Streaming mode
+            if type == "input":
+                return self.PREFIX_STREAMING_INPUT
+            elif type == "output":
+                return self.PREFIX_STREAMING_OUTPUT
+            elif type == "output_display":
+                return self.PREFIX_STREAMING_OUTPUT_DISPLAY
+
+        raise ValueError(
+            f"Invalid variable type: {type}. Must be 'input', 'output', or 'output_display'."
+        )

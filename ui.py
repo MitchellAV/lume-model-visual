@@ -1,6 +1,3 @@
-from typing import cast
-
-
 import numpy as np
 import pandas as pd
 
@@ -68,8 +65,9 @@ class UI:
 
     def _collect_input_values(self) -> dict[str, float]:
         input_dict: dict[str, float] = {}
+        prefix = self.state_manager.get_mode_prefix("input")
         for var in self.model.input_variables:
-            state_key = f"{self.state_manager.PREFIX_INTERACTIVE_INPUT}_{sanitize_string(var.name)}"
+            state_key = f"{prefix}_{sanitize_string(var.name)}"
             if not self.state.has(state_key):
                 continue
             state_value = self.state[state_key]
@@ -83,31 +81,14 @@ class UI:
                     )
         return input_dict
 
-    def _update_output_values(self, output: dict[str, float]) -> None:
-        output_df = cast(
-            pd.DataFrame,
-            pd.DataFrame.from_dict(self.state["plot_data"]),
-        )
-
-        # cast all columns to float
-        row = {col: float(output[col]) for col in output_df.columns}
-        # Create new row with same columns as existing dataframe
-        new_row = pd.DataFrame([row], columns=output_df.columns)
-        output_df = pd.concat([output_df, new_row], ignore_index=True)
-
-        self.state_manager.set_state("plot_data", output_df.to_dict(orient="list"))
-        self.state.dirty("plot_data")
-
-        for key, value in output.items():
-            state_key = (
-                f"{self.state_manager.PREFIX_INTERACTIVE_OUTPUT}_{sanitize_string(key)}"
-            )
-            self.state_manager.set_state(state_key, float(value))
-
     def evaluate_model(self) -> None:
         input_dict = self._collect_input_values()
         output = self.model.evaluate(input_dict)
         self.state_manager.update_plot_data(output)
+
+    def reinitialize_ui(self) -> None:
+        """Reinitialize the UI, for example after loading a new model."""
+        self._initialize_ui()
 
     def _initialize_ui(self) -> None:
         with SinglePageLayout(self.state_manager.server) as layout:
@@ -182,9 +163,10 @@ class UI:
             )
 
     def _initialize_output_widgets(self) -> None:
+        prefix = self.state_manager.get_mode_prefix("output")
         with VContainer(fluid=True):
             for name in self.state_manager.output_variable_names:
-                state_key = f"{self.state_manager.PREFIX_INTERACTIVE_OUTPUT}_{sanitize_string(name)}"
+                state_key = f"{prefix}_{sanitize_string(name)}"
                 with VRow():
                     with VCol():
                         Div(f"{name}")
@@ -195,9 +177,11 @@ class UI:
                         )
 
     def _initialize_input_widgets(self) -> None:
-        with VContainer(fluid=True, max_height="500px", style="overflow-y: auto;"):
-            for var in self.model.input_variables:
-                self._create_slider_for_variable(var)
+        mode = self.state_manager.state.mode
+        if mode == "1":
+            with VContainer(fluid=True, max_height="500px", style="overflow-y: auto;"):
+                for var in self.model.input_variables:
+                    self._create_slider_for_variable(var)
 
     def _create_slider_for_variable(self, var: ScalarVariable) -> None:
         name = var.name
@@ -209,9 +193,10 @@ class UI:
         min_value, max_value = var.value_range
 
         step = (max_value - min_value) / 100.0
-        state_key = (
-            f"{self.state_manager.PREFIX_INTERACTIVE_INPUT}_{sanitize_string(name)}"
-        )
+
+        prefix = self.state_manager.get_mode_prefix("input")
+
+        state_key = f"{prefix}_{sanitize_string(name)}"
 
         if step <= 0:
             with VRow():
@@ -255,8 +240,9 @@ class UI:
 
     def _collect_plot_variables(self) -> list[str]:
         plot_variables: list[str] = []
+        prefix = self.state_manager.get_mode_prefix("output_display")
         for name in self.state_manager.output_variable_names:
-            state_key = f"{self.state_manager.PREFIX_INTERACTIVE_OUTPUT_DISPLAY}_{sanitize_string(name)}"
+            state_key = f"{prefix}_{sanitize_string(name)}"
             if self.state.has(state_key) and self.state[state_key]:
                 plot_variables.append(name)
         return plot_variables
@@ -304,12 +290,11 @@ class UI:
             self._create_variables_to_plot()
 
     def _create_variables_to_plot(self) -> None:
+        prefix = self.state_manager.get_mode_prefix("output_display")
         for var_name in self.state_manager.output_variable_names:
             with VCol():
                 VCheckbox(
-                    v_model=(
-                        f"{self.state_manager.PREFIX_INTERACTIVE_OUTPUT_DISPLAY}_{sanitize_string(var_name)}",
-                    ),
+                    v_model=(f"{prefix}_{sanitize_string(var_name)}",),
                     label=var_name,
                     change=self.ctrl.update_plot,
                 )
