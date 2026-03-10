@@ -107,7 +107,7 @@ class UI:
     def evaluate_model(self) -> None:
         input_dict = self._collect_input_values()
         output = self.model.evaluate(input_dict)
-        self._update_output_values(output)
+        self.state_manager.update_plot_data(output)
 
     def _initialize_ui(self) -> None:
         with SinglePageLayout(self.state_manager.server) as layout:

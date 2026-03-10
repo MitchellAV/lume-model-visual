@@ -250,38 +250,55 @@ class StateManager:
 
         value_dict = dict(zip(PV_OUTPUT_NAMES, values))
 
-        self._update_plot_data(value_dict)
+        self.update_plot_data(value_dict)
 
-    def _update_plot_data(self, output: dict[str, float | None]) -> None:
+    def update_plot_data(self, output: dict[str, float | None]) -> None:
         """Update the plot data in state with new model outputs."""
         # Append new output values to the history DataFrame
-        history_df = (
-            self.interactive_history_df
-            if self.state.mode == "1"
-            else self.streaming_history_df
+        output_df = cast(
+            pd.DataFrame,
+            pd.DataFrame.from_dict(self.state["plot_data"]),
         )
 
-        row = {col: output.get(col, None) for col in history_df.columns}
+        row: dict[str, float | None] = {}
+
+        for col in output_df.columns:
+            if col not in output:
+                output[col] = None
+            value = output[col]
+            if value is not None:
+                value = float(value)
+            row[col] = value
         print("New output row:")
         pprint.pprint(row)
 
-        new_row = pd.DataFrame([row], columns=history_df.columns)
+        new_row = pd.DataFrame([row], columns=output_df.columns)
 
         print("New row DataFrame:")
         print(new_row.head())
 
-        output_df = pd.concat([history_df, new_row], ignore_index=True)
+        output_df = pd.concat([output_df, new_row], ignore_index=True)
 
         print("Updated output DataFrame:")
         print(output_df.head())
-        # if self.state.mode == "1":
-        #     self.interactive_history_df = output_df
-        # else:
-        #     self.streaming_history_df = output_df
+
+        prefix: str = ""
+
+        if self.state.mode == "1":
+            self.interactive_history_df = output_df
+            prefix = self.PREFIX_INTERACTIVE_OUTPUT
+        else:
+            self.streaming_history_df = output_df
+            prefix = self.PREFIX_STREAMING_OUTPUT
         self.set_state("plot_data", output_df.to_dict(orient="list"))
 
         print("Updated plot_data state:")
         pprint.pprint(self.state.plot_data)
+
+        for key, value in row.items():
+            state_key = f"{prefix}_{sanitize_string(key)}"
+            self.set_state(state_key, value)
+
         self.state.dirty("plot_data")
 
     def reset_state(self) -> None:
