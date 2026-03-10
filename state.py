@@ -95,9 +95,9 @@ class StateManager:
 
                 corrected_default = round(corrected_default, 2)
 
-                print(
-                    f'Initializing input variable "{var.name}" with default value: {corrected_default}'
-                )
+                # print(
+                #     f'Initializing input variable "{var.name}" with default value: {corrected_default}'
+                # )
 
                 self.set_state(
                     f"{self.PREFIX_INPUT}_{sanitize_string(var.name)}",
@@ -190,7 +190,11 @@ class StateManager:
 
         values = epics.caget_many(PV_OUTPUT_NAMES)
         for pv_name, value in zip(PV_OUTPUT_NAMES, values):
-            self.set_state(f"{self.PREFIX_OUTPUT}_{sanitize_string(pv_name)}", value)
+            print(f"Streaming PV {pv_name}: {value}")
+
+    def reset_state(self) -> None:
+        """Reset all state values to their defaults."""
+        self._initialize_state()
 
     @property
     def state(self) -> St:
