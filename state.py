@@ -262,15 +262,17 @@ class StateManager:
         )
 
         row = {col: output.get(col, None) for col in output_df.columns}
-
+        print("New output row:")
         pprint.pprint(row)
 
         new_row = pd.DataFrame([row], columns=output_df.columns)
 
+        print("New row DataFrame:")
         pprint.pprint(new_row)
 
         output_df = pd.concat([output_df, new_row], ignore_index=True)
 
+        print("Updated output DataFrame:")
         pprint.pprint(output_df)
         # if self.state.mode == "1":
         #     self.interactive_history_df = output_df
@@ -278,6 +280,7 @@ class StateManager:
         #     self.streaming_history_df = output_df
         self.set_state("plot_data", output_df.to_dict(orient="list"))
 
+        print("Updated plot_data state:")
         pprint.pprint(self.state.plot_data)
         self.state.dirty("plot_data")
 
