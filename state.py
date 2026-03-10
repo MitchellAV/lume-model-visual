@@ -1,3 +1,4 @@
+import pprint
 from typing import Any, Callable, cast
 
 import pandas as pd
@@ -245,13 +246,15 @@ class StateManager:
         #     # Update state with new PV value (this is just an example, adjust as needed)
         #     self.set_state(f"{self.PREFIX_OUTPUT}_{sanitize_string(pv_name)}", value)
 
-        values = epics.caget_many(PV_OUTPUT_NAMES)
+        values = cast(list[float | None], epics.caget_many(PV_OUTPUT_NAMES))
 
         value_dict = dict(zip(PV_OUTPUT_NAMES, values))
 
+        pprint.pprint(value_dict)
+
         self._update_plot_data(value_dict)
 
-    def _update_plot_data(self, output: dict[str, float]) -> None:
+    def _update_plot_data(self, output: dict[str, float | None]) -> None:
         """Update the plot data in state with new model outputs."""
         # Append new output values to the history DataFrame
         output_df = (
@@ -260,7 +263,7 @@ class StateManager:
             else self.streaming_history_df
         )
 
-        row = {col: float(output[col]) for col in output_df.columns}
+        row = {col: output.get(col, None) for col in output_df.columns}
         new_row = pd.DataFrame([row], columns=output_df.columns)
         output_df = pd.concat([output_df, new_row], ignore_index=True)
         # if self.state.mode == "1":
