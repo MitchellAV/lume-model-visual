@@ -32,7 +32,7 @@ class Ctrl(Controller):  # type: ignore[misc]
     evaluate_and_update_plot: Callable[[], None]
     toggle_streaming: Callable[[], None]
     toggle_mode: Callable[[], None]
-    stream_pv_data: Callable[[], None]
+    collect_and_update_plot: Callable[[], None]
 
 
 class St(State):  # type: ignore[misc]
@@ -219,7 +219,7 @@ class StateManager:
         self.ctrl.start_streaming = None  # type: ignore
         self.ctrl.stop_streaming = None  # type: ignore
 
-        self.ctrl.stream_pv_data = self._stream_pv_data
+        self.ctrl.collect_and_update_plot = None  # type: ignore
 
         self.ctrl.update_plot = None  # type: ignore
         self.ctrl.evaluate_and_update_plot = None  # type: ignore
@@ -237,7 +237,7 @@ class StateManager:
 
     #     self.reset_state()  # Re-initialize variables for the new mode
 
-    def _stream_pv_data(self) -> None:
+    def stream_pv_data(self) -> None:
         """Simulate streaming data by generating random input values."""
         # https://pyepics.github.io/pyepics/advanced.html#advanced-connecting-many-label
         # for pv_name in PV_OUTPUT_NAMES:

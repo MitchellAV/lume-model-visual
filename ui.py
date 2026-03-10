@@ -52,6 +52,11 @@ class UI:
         self.ctrl.update_plot = self.update_plot
         self.ctrl.evaluate_and_update_plot = self.evaluate_and_update_plot
         self.ctrl.toggle_streaming = self.toggle_streaming
+        self.ctrl.collect_and_update_plot = self.collect_and_update_plot
+
+    def collect_and_update_plot(self) -> None:
+        self.state_manager.stream_pv_data()
+        self.update_plot()
 
     def evaluate_and_update_plot(self) -> None:
         self.evaluate_model()
@@ -71,7 +76,7 @@ class UI:
             if not self.state.has(state_key):
                 continue
             state_value = self.state[state_key]
-            bad_values = [None, "", "."]
+            bad_values: list[object] = [None, "", "."]
             if state_value not in bad_values:
                 try:
                     input_dict[var.name] = float(state_value)

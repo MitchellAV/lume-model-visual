@@ -64,7 +64,7 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
 
                 if mode == "0":  # Streaming Mode
                     # Simulate streaming data by generating random input values
-                    self.state_manager.ctrl.stream_pv_data()
+                    self.state_manager.ctrl.collect_and_update_plot()
                 elif mode == "1":  # Manual Mode
                     # Evaluate model and update plots
                     self.state_manager.ctrl.evaluate_and_update_plot()
