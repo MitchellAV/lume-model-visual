@@ -1,5 +1,5 @@
-import pprint
 from typing import Any, Callable, Literal, cast
+import asyncio
 
 import pandas as pd
 
@@ -9,30 +9,26 @@ from trame_server.controller import Controller
 
 from lume_model.models import TorchModel
 
-from util import fix_out_of_range_value, sanitize_string, validate_state_key
+from util import (
+    fix_out_of_range_value,
+    sanitize_string,
+    validate_state_key,
+    initialize_logger,
+)
 
 import epics
 
-PV_OUTPUT_NAMES = [
-    "OTRS:IN20:571:XRMS_CU_HXR_LUME",
-    "OTRS:IN20:571:YRMS_CU_HXR_LUME",
-    "OTRS:IN20:571:EMITN_X_CU_HXR_LUME",
-    "OTRS:IN20:571:EMITN_Y_CU_HXR_LUME",
-    "OTRS:IN20:571:EMIT_X_CU_HXR_LUME",
-    "OTRS:IN20:571:EMIT_Y_CU_HXR_LUME",
-    "OTRS:IN20:571:ZRMS_CU_HXR_LUME",
-]
+logger = initialize_logger(__name__)
 
 
 class Ctrl(Controller):  # type: ignore[misc]
     on_server_ready: Callable[[], None]
-    start_streaming: Callable[[], None]
-    stop_streaming: Callable[[], None]
     update_plot: Callable[[], None]
     evaluate_and_update_plot: Callable[[], None]
+    collect_and_update_plot: Callable[[], None]
+    reinitialize_ui: Callable[[], None]
     toggle_streaming: Callable[[], None]
     toggle_mode: Callable[[], None]
-    collect_and_update_plot: Callable[[], None]
 
 
 class St(State):  # type: ignore[misc]
@@ -48,6 +44,8 @@ class St(State):  # type: ignore[misc]
 
 
 class StateManager:
+    DEFAULT_UPDATE_INTERVAL = 1.0  # seconds
+
     PREFIX_INTERACTIVE_INPUT = "interactive_input_variable"
     PREFIX_INTERACTIVE_OUTPUT = "interactive_output_variable"
     PREFIX_INTERACTIVE_OUTPUT_DISPLAY = "interactive_output_display"
@@ -65,12 +63,28 @@ class StateManager:
     input_variable_names: list[str] = []
     output_variable_names: list[str] = []
 
-    def __init__(self, server: Server, model: TorchModel) -> None:
+    def __init__(
+        self,
+        server: Server,
+        model: TorchModel,
+        pv_output_names: list[str],
+    ) -> None:
         self.server = server
         self.model = model
+        self.pv_output_names = pv_output_names
 
         self._initialize_state()
         self._initialize_event_handlers()
+        self._initialize_state_handlers()
+        self._initialize_coroutines()
+
+    @property
+    def state(self) -> St:
+        return self.server.state  # type: ignore
+
+    @property
+    def ctrl(self) -> Ctrl:
+        return self.server.controller  # type: ignore
 
     def set_state(self, key: str, value: object) -> None:
         """Set a state value with server-side key validation.
@@ -143,7 +157,8 @@ class StateManager:
         column_names: list[str] = []
 
         # Output Variables
-        for var in PV_OUTPUT_NAMES:
+
+        for var in self.pv_output_names:
             output_key = f"{self.PREFIX_STREAMING_OUTPUT}_{sanitize_string(var)}"
 
             self.set_state(
@@ -169,7 +184,7 @@ class StateManager:
         self.set_state("plot_data", output_dict)
 
     def _initialize_variables(self) -> None:
-        mode = cast(str, self.state["mode"])
+        mode = self.state.mode
         if mode == "0":
             self._initialize_streaming_variables()
         else:
@@ -216,39 +231,78 @@ class StateManager:
         """Initialize event handlers for streaming and plot updates."""
         # Event handlers are registered in the main app class using decorators
         self.ctrl.on_server_ready = None  # type: ignore
-        self.ctrl.start_streaming = None  # type: ignore
-        self.ctrl.stop_streaming = None  # type: ignore
-
         self.ctrl.collect_and_update_plot = None  # type: ignore
 
         self.ctrl.update_plot = None  # type: ignore
+        self.ctrl.reinitialize_ui = None  # type: ignore
         self.ctrl.evaluate_and_update_plot = None  # type: ignore
-        self.ctrl.toggle_streaming = None  # type: ignore
-        self.ctrl.toggle_mode = None  # type: ignore
+        self.ctrl.toggle_streaming = self._toggle_streaming
+        self.ctrl.toggle_mode = self._toggle_mode
 
-    # def _toggle_mode(self) -> None:
-    #     """Toggle between different modes (e.g., streaming vs. static)."""
-    #     # This method can be expanded to include logic for toggling modes
-    #     current_mode = self.state.mode
-    #     if current_mode == "0":
-    #         self.set_state("mode", "1")
-    #     else:
-    #         self.set_state("mode", "0")
+    def _initialize_coroutines(self) -> None:
+        """Initialize any background coroutines (like data streaming)."""
+        # Coroutines are registered in the main app class using decorators
+        self.ctrl.on_server_ready.add_task(self._data_stream_task)  # type: ignore
 
-    #     self.reset_state()  # Re-initialize variables for the new mode
+    def _initialize_state_handlers(self) -> None:
+        """Initialize state change handlers for interactive variables."""
+        # State change handlers are registered in the main app class using decorators
+
+        self.state.change("hist_x_axis", "hist_y_axis")(self._handle_hist_axis_change)
+
+    async def _data_stream_task(self, *args: Any, **kwargs: Any) -> None:
+        """Async task that simulates streaming data and updates plots."""
+        logger.info("Starting data stream task...")
+        while True:
+            await asyncio.sleep(self.DEFAULT_UPDATE_INTERVAL)
+
+            is_streaming_active = self.state.streaming_active
+            if is_streaming_active:
+                mode = self.state.mode
+
+                if mode == "0":  # Streaming Mode
+                    # Simulate streaming data by generating random input values
+                    self.ctrl.collect_and_update_plot()
+                elif mode == "1":  # Manual Mode
+                    # Evaluate model and update plots
+                    self.ctrl.evaluate_and_update_plot()
+                # Required to ensure UI updates are sent to the client
+                self.state.flush()
+
+    def _handle_hist_axis_change(self, *args: Any, **kwargs: Any) -> None:
+        self.ctrl.update_plot()
+
+    def _toggle_mode(self, *args: Any, **kwargs: Any) -> None:
+        current_mode = self.state.mode
+        if current_mode == "0":
+            self.set_state("mode", "1")
+        else:
+            self.set_state("mode", "0")
+
+        self.reset_state()  # Re-initialize variables for the new mode
+        self.ctrl.reinitialize_ui()
+
+    def _toggle_streaming(self) -> None:
+        if self.state.streaming_active:
+            self.set_state("streaming_active", False)
+            self.set_state("streaming_status", "Start Streaming")
+        else:
+            self.set_state("streaming_active", True)
+            self.set_state("streaming_status", "Stop Streaming")
 
     def stream_pv_data(self) -> None:
         """Simulate streaming data by generating random input values."""
         # https://pyepics.github.io/pyepics/advanced.html#advanced-connecting-many-label
-        # for pv_name in PV_OUTPUT_NAMES:
+
+        # for pv_name in self.pv_output_names:
         #     pv = epics.PV(pv_name)
         #     value = pv.get()
         #     # Update state with new PV value (this is just an example, adjust as needed)
         #     self.set_state(f"{self.PREFIX_OUTPUT}_{sanitize_string(pv_name)}", value)
 
-        values = cast(list[float | None], epics.caget_many(PV_OUTPUT_NAMES))
+        values = cast(list[float | None], epics.caget_many(self.pv_output_names))
 
-        value_dict = dict(zip(PV_OUTPUT_NAMES, values))
+        value_dict = dict(zip(self.pv_output_names, values))
 
         self.update_plot_data(value_dict)
 
@@ -257,7 +311,7 @@ class StateManager:
         # Append new output values to the history DataFrame
         output_df = cast(
             pd.DataFrame,
-            pd.DataFrame.from_dict(self.state["plot_data"]),
+            pd.DataFrame.from_dict(self.state.plot_data),
         )
 
         row: dict[str, float | None] = {}
@@ -269,18 +323,10 @@ class StateManager:
             if value is not None:
                 value = float(value)
             row[col] = value
-        print("New output row:")
-        pprint.pprint(row)
 
         new_row = pd.DataFrame([row], columns=output_df.columns)
 
-        print("New row DataFrame:")
-        print(new_row.head())
-
         output_df = pd.concat([output_df, new_row], ignore_index=True)
-
-        print("Updated output DataFrame:")
-        print(output_df.head())
 
         prefix: str = ""
 
@@ -291,9 +337,6 @@ class StateManager:
             self.streaming_history_df = output_df
             prefix = self.PREFIX_STREAMING_OUTPUT
         self.set_state("plot_data", output_df.to_dict(orient="list"))
-
-        print("Updated plot_data state:")
-        pprint.pprint(self.state.plot_data)
 
         for key, value in row.items():
             state_key = f"{prefix}_{sanitize_string(key)}"
@@ -307,38 +350,7 @@ class StateManager:
         self.input_variable_names = []
         self.output_variable_names = []
 
-        # mode = self.state.mode
-        # if mode == "0":
-        #     self.streaming_history_df = pd.DataFrame()
-        # else:
-        #     self.interactive_history_df = pd.DataFrame()
-
-        # self.delete_variable_state(mode)
-
         self._initialize_variables()
-
-    def delete_variable_state(self, mode: str) -> None:
-        """Delete state values associated with a specific variable."""
-        prefix = "interactive" if mode == "1" else "streaming"
-        state_dict = cast(dict[str, Any], self.state.to_dict())
-
-        keys_to_delete: list[str] = []
-
-        for key in state_dict.keys():
-            if prefix in key:
-                keys_to_delete.append(key)
-
-        for state_key in keys_to_delete:
-            if self.state.has(state_key):
-                del self.state[state_key]
-
-    @property
-    def state(self) -> St:
-        return self.server.state  # type: ignore
-
-    @property
-    def ctrl(self) -> Ctrl:
-        return self.server.controller  # type: ignore
 
     def get_mode_prefix(
         self, type: Literal["input", "output", "output_display"]

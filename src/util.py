@@ -1,4 +1,42 @@
 import re
+import os
+
+import logging
+import logging.config
+
+
+def initialize_logger(name: str) -> logging.Logger:
+    logging_config_path = os.path.join(os.path.dirname(__file__), "logging.ini")
+
+    if not os.path.exists(logging_config_path):
+        raise FileNotFoundError(
+            f"Logging configuration file not found at {logging_config_path}"
+        )
+
+    logging.config.fileConfig(logging_config_path, disable_existing_loggers=False)
+    logger = logging.getLogger(name)
+
+    return logger
+
+
+def get_model_path(
+    model_name: str,
+    models_dir: str = "models",
+    model_config_name: str = "model_config.yaml",
+) -> str:
+    BASE_DIR = os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))
+    )  # move out of src to get to project root
+    MODELS_DIR = os.path.join(BASE_DIR, models_dir)
+    MODEL_PATH = os.path.join(MODELS_DIR, f"{model_name}")
+
+    MODEL_YAML_PATH = os.path.join(MODEL_PATH, model_config_name)
+    if not os.path.exists(MODEL_YAML_PATH):
+        raise FileNotFoundError(
+            f"Model configuration file not found at {MODEL_YAML_PATH}"
+        )
+
+    return MODEL_YAML_PATH
 
 
 def sanitize_string(s: str) -> str:

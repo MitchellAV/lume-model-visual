@@ -1,3 +1,5 @@
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
@@ -23,7 +25,9 @@ from lume_model.variables import ScalarVariable
 
 from state import Ctrl, St, StateManager
 
-from util import sanitize_string
+from util import sanitize_string, initialize_logger
+
+logger = initialize_logger(__name__)
 
 
 class UI:
@@ -51,8 +55,8 @@ class UI:
     def _initialize_event_listeners(self) -> None:
         self.ctrl.update_plot = self.update_plot
         self.ctrl.evaluate_and_update_plot = self.evaluate_and_update_plot
-        self.ctrl.toggle_streaming = self.toggle_streaming
         self.ctrl.collect_and_update_plot = self.collect_and_update_plot
+        self.ctrl.reinitialize_ui = self.reinitialize_ui
 
     def collect_and_update_plot(self) -> None:
         self.state_manager.stream_pv_data()
@@ -61,12 +65,6 @@ class UI:
     def evaluate_and_update_plot(self) -> None:
         self.evaluate_model()
         self.update_plot()
-
-    def toggle_streaming(self) -> None:
-        if self.state["streaming_active"]:
-            self.ctrl.stop_streaming()
-        else:
-            self.ctrl.start_streaming()
 
     def _collect_input_values(self) -> dict[str, float]:
         input_dict: dict[str, float] = {}
@@ -81,8 +79,8 @@ class UI:
                 try:
                     input_dict[var.name] = float(state_value)
                 except ValueError as e:
-                    print(
-                        f"Warning: Could not convert state value '{state_value}' for variable '{var.name}' to float: {e}"
+                    logger.warning(
+                        f"Could not convert state value '{state_value}' for variable '{var.name}' to float: {e}"
                     )
         return input_dict
 
@@ -154,7 +152,7 @@ class UI:
         with VContainer(fluid=True):
             # x variable
             VSelect(
-                v_model=("hist_x_axis", "1:4"),
+                v_model=("hist_x_axis",),
                 items=("x_select",),
                 label="X Variable",
                 # update_modelValue=self.ctrl.update_plot,
@@ -236,10 +234,10 @@ class UI:
     def _collect_values_by_variable_name(
         self, variable_names: list[str]
     ) -> pd.DataFrame:
-        output_df = pd.DataFrame.from_dict(self.state["plot_data"]).copy()
+        output_df = cast(pd.DataFrame, pd.DataFrame.from_dict(self.state.plot_data))  # pyright: ignore[reportUnknownMemberType]
 
         # Remove any columns not in variable_names
-        output_df = output_df[variable_names]
+        output_df = cast(pd.DataFrame, output_df[variable_names])
 
         return output_df
 
@@ -268,17 +266,17 @@ class UI:
     def _create_2d_histogram_figure(
         self,
     ) -> go.Figure:
-        data = pd.DataFrame.from_dict(self.state["plot_data"])
+        data = cast(pd.DataFrame, pd.DataFrame.from_dict(self.state.plot_data))  # pyright: ignore[reportUnknownMemberType]
 
-        x_data = self.state["hist_x_axis"]
-        y_data = self.state["hist_y_axis"]
+        x_axis_variable = self.state.hist_x_axis
+        y_axis_variable = self.state.hist_y_axis
 
-        HISTOGRAM_BINS = 10  # Use default binning strategy of plotly
+        HISTOGRAM_BINS = 10
 
         fig = px.density_heatmap(
             data_frame=data,
-            x=x_data,
-            y=y_data,
+            x=x_axis_variable,
+            y=y_axis_variable,
             nbinsx=HISTOGRAM_BINS,
             nbinsy=HISTOGRAM_BINS,
         )

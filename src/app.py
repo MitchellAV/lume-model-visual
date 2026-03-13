@@ -1,30 +1,27 @@
-import os
 from gui import LUMEModelVisualApp
 from dotenv import load_dotenv
+from util import get_model_path, initialize_logger
 
 load_dotenv()  # Load environment variables from .env file
 
+logger = initialize_logger(__name__)
 
-def get_model_path(model_name: str) -> str:
-    BASE_DIR = os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__))
-    )  # move out of src to get to project root
-    MODELS_DIR = os.path.join(BASE_DIR, "models")
-    MODEL_PATH = os.path.join(MODELS_DIR, f"{model_name}")
-
-    MODEL_YAML_PATH = os.path.join(MODEL_PATH, "model_config.yaml")
-    if not os.path.exists(MODEL_YAML_PATH):
-        raise FileNotFoundError(
-            f"Model configuration file not found at {MODEL_YAML_PATH}"
-        )
-
-    return MODEL_YAML_PATH
+PV_OUTPUT_NAMES = [
+    "OTRS:IN20:571:XRMS_CU_HXR_LUME",
+    "OTRS:IN20:571:YRMS_CU_HXR_LUME",
+    "OTRS:IN20:571:EMITN_X_CU_HXR_LUME",
+    "OTRS:IN20:571:EMITN_Y_CU_HXR_LUME",
+    "OTRS:IN20:571:EMIT_X_CU_HXR_LUME",
+    "OTRS:IN20:571:EMIT_Y_CU_HXR_LUME",
+    "OTRS:IN20:571:ZRMS_CU_HXR_LUME",
+]
 
 
 def main() -> None:
     model_file_path = get_model_path("LCLS_FEL_Surrogate")
+    logger.info(f"Using model file at: {model_file_path}")
 
-    app = LUMEModelVisualApp(model_file_path)
+    app = LUMEModelVisualApp(model_file_path, PV_OUTPUT_NAMES)
     app.start()
 
 

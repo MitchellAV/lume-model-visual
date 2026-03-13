@@ -3,6 +3,7 @@
 .*
 models/**
 *.env
+logs/**
 
 !example.env
 

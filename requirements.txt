@@ -1,5 +1,6 @@
 trame
 trame-vuetify
+trame-plotly
 lume-model
 pre-commit
 pandas

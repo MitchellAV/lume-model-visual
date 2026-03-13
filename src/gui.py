@@ -1,100 +1,53 @@
 from typing import Any
-import asyncio
-
-from trame_server import Server
-from trame_server.core import BackendType, ExecModeType
-from trame.decorators import change, life_cycle, controller
 
 from trame.app import TrameApp
+from trame.decorators import life_cycle
+from trame_server import Server
+from trame_server.core import BackendType, ExecModeType
 
 from lume_model.models import TorchModel
 
 from state import StateManager
-
-
 from ui import UI
+
+from util import initialize_logger
+
+logger = initialize_logger(__name__)
 
 
 class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
     server: Server  # pyright: ignore[reportIncompatibleMethodOverride]
     model: TorchModel
 
-    DEFAULT_UPDATE_INTERVAL = 1.0  # seconds
-
     def __init__(
         self,
         model_path: str,
+        pv_output_names: list[str] | None = None,
     ) -> None:
         super().__init__(  # pyright: ignore[reportUnknownMemberType]
             client_type="vue3",
         )
 
+        if pv_output_names is None:
+            pv_output_names = []
+
         self.load_model(model_path)
-        self.state_manager = StateManager(self.server, self.model)
+        self.state_manager = StateManager(self.server, self.model, pv_output_names)
         self.ui = UI(self.state_manager)
         self.streaming_enabled = False
 
-        self._initialize_event_handlers()
-
     def load_model(self, model_path: str) -> None:
         self.model = TorchModel(model_path)
-
-    def _initialize_event_handlers(self) -> None:
-        self.state_manager.ctrl.toggle_mode = self._toggle_mode
-
-    def _toggle_mode(self, *args: Any, **kwargs: Any) -> None:
-        current_mode = self.state_manager.state.mode
-        if current_mode == "0":
-            self.state_manager.set_state("mode", "1")
-        else:
-            self.state_manager.set_state("mode", "0")
-
-        self.state_manager.reset_state()  # Re-initialize variables for the new mode
-        self.ui.reinitialize_ui()
-
-    @controller.add_task("on_server_ready")  # type: ignore
-    async def data_stream_task(self, *args: Any, **kwargs: Any) -> None:
-        """Async task that simulates streaming data and updates plots."""
-        print("Starting data stream task...")
-        while True:
-            await asyncio.sleep(self.DEFAULT_UPDATE_INTERVAL)
-
-            if self.streaming_enabled:
-                mode = self.state_manager.state.mode
-
-                if mode == "0":  # Streaming Mode
-                    # Simulate streaming data by generating random input values
-                    self.state_manager.ctrl.collect_and_update_plot()
-                elif mode == "1":  # Manual Mode
-                    # Evaluate model and update plots
-                    self.state_manager.ctrl.evaluate_and_update_plot()
-                # Required to ensure UI updates are sent to the client
-                self.state_manager.state.flush()
-
-    @controller.add("start_streaming")  # type: ignore
-    def start_streaming(self, *args: Any, **kwargs: Any) -> None:
-        print("Starting data stream...")
-        self.streaming_enabled = True
-        self.server.state["streaming_active"] = True
-        self.server.state["streaming_status"] = "Stop Streaming"
-
-    @controller.add("stop_streaming")  # type: ignore
-    def stop_streaming(self, *args: Any, **kwargs: Any) -> None:
-        print("Stopping data stream...")
-        self.streaming_enabled = False
-        self.server.state["streaming_active"] = False
-        self.server.state["streaming_status"] = "Start Streaming"
-
-    @change("hist_x_axis", "hist_y_axis")  # type: ignore
-    def handle_hist_axis_change(self, *args: Any, **kwargs: Any) -> None:
-        self.ui.update_plot()
+        logger.info(f"Model loaded from {model_path}")
 
     @life_cycle.error  # type: ignore
     def on_error(self, error: Exception) -> None:
+        logger.error(f"An error occurred: {error}")
         raise error
 
     @life_cycle.exception  # type: ignore
     def on_exception(self, exception: Exception) -> None:
+        logger.exception(f"An exception occurred: {exception}")
         raise exception
 
     def start(
