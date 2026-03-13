@@ -6,7 +6,9 @@ load_dotenv()  # Load environment variables from .env file
 
 
 def get_model_path(model_name: str) -> str:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))
+    )  # move out of src to get to project root
     MODELS_DIR = os.path.join(BASE_DIR, "models")
     MODEL_PATH = os.path.join(MODELS_DIR, f"{model_name}")
 
