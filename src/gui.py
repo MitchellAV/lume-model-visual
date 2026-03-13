@@ -5,7 +5,6 @@ from trame.decorators import life_cycle
 from trame_server import Server
 from trame_server.core import BackendType, ExecModeType
 
-from lume_model.models import TorchModel
 
 from state import StateManager
 from ui import UI
@@ -17,7 +16,6 @@ logger = initialize_logger(__name__)
 
 class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
     server: Server  # pyright: ignore[reportIncompatibleMethodOverride]
-    model: TorchModel
 
     def __init__(
         self,
@@ -31,14 +29,10 @@ class LUMEModelVisualApp(TrameApp):  # type: ignore[misc]
         if pv_output_names is None:
             pv_output_names = []
 
-        self.load_model(model_path)
-        self.state_manager = StateManager(self.server, self.model, pv_output_names)
+        self.state_manager = StateManager(self.server, model_path, pv_output_names)
         self.ui = UI(self.state_manager)
-        self.streaming_enabled = False
 
-    def load_model(self, model_path: str) -> None:
-        self.model = TorchModel(model_path)
-        logger.info(f"Model loaded from {model_path}")
+        self.state_manager.initialize_state_handlers()  # Initialize state handlers after UI is set up
 
     @life_cycle.error  # type: ignore
     def on_error(self, error: Exception) -> None:

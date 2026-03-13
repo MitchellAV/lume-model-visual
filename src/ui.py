@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -38,7 +38,6 @@ class UI:
 
         self._initialize_event_listeners()
         self._initialize_ui()
-        self.evaluate_and_update_plot()
 
     @property
     def model(self) -> TorchModel:
@@ -58,39 +57,49 @@ class UI:
         self.ctrl.collect_and_update_plot = self.collect_and_update_plot
         self.ctrl.reinitialize_ui = self.reinitialize_ui
 
-    def collect_and_update_plot(self) -> None:
+    def collect_and_update_plot(self, *args: Any, **kwargs: Any) -> None:
+        logger.debug("Event: collect_and_update_plot called")
+        logger.debug(f"collect_and_update_plot args: {args}, kwargs: {kwargs}")
         self.state_manager.stream_pv_data()
         self.update_plot()
 
-    def evaluate_and_update_plot(self) -> None:
+    def evaluate_and_update_plot(self, *args: Any, **kwargs: Any) -> None:
+        logger.debug("Event: evaluate_and_update_plot called")
+        logger.debug(f"evaluate_and_update_plot args: {args}, kwargs: {kwargs}")
         self.evaluate_model()
         self.update_plot()
+
+    def update_plot(self, *args: Any, **kwargs: Any) -> None:
+        logger.debug("Event: update_plot called")
+        logger.debug(f"update_plot args: {args}, kwargs: {kwargs}")
+
+        self._update_figure()
 
     def _collect_input_values(self) -> dict[str, float]:
         input_dict: dict[str, float] = {}
         prefix = self.state_manager.get_mode_prefix("input")
+        input_variables = cast(dict[str, float], self.state[f"{prefix}"])
         for var in self.model.input_variables:
-            state_key = f"{prefix}_{sanitize_string(var.name)}"
-            if not self.state.has(state_key):
+            var_name = var.name
+            s_name = sanitize_string(var_name)
+            if s_name not in input_variables:
                 continue
-            state_value = self.state[state_key]
-            bad_values: list[object] = [None, "", "."]
-            if state_value not in bad_values:
-                try:
-                    input_dict[var.name] = float(state_value)
-                except ValueError as e:
-                    logger.warning(
-                        f"Could not convert state value '{state_value}' for variable '{var.name}' to float: {e}"
-                    )
+            input_dict[var_name] = float(input_variables[s_name])
+
         return input_dict
 
     def evaluate_model(self) -> None:
-        input_dict = self._collect_input_values()
-        output = self.model.evaluate(input_dict)
-        self.state_manager.update_plot_data(output)
+        mode = self.state.mode
+        if mode == "1":
+            input_dict = self._collect_input_values()
+            output = self.model.evaluate(input_dict)
+            self.state_manager.update_plot_data(output)
 
-    def reinitialize_ui(self) -> None:
+    def reinitialize_ui(self, *args: Any, **kwargs: Any) -> None:
         """Reinitialize the UI, for example after loading a new model."""
+        logger.debug("Event: reinitialize_ui called")
+        logger.debug(f"reinitialize_ui args: {args}, kwargs: {kwargs}")
+
         self._initialize_ui()
 
     def _initialize_ui(self) -> None:
@@ -155,21 +164,19 @@ class UI:
                 v_model=("hist_x_axis",),
                 items=("x_select",),
                 label="X Variable",
-                # update_modelValue=self.ctrl.update_plot,
             )
             # y variable
             VSelect(
                 v_model=("hist_y_axis",),
                 items=("y_select",),
                 label="Y Variable",
-                # update_modelValue=self.ctrl.update_plot,
             )
 
     def _initialize_output_widgets(self) -> None:
         prefix = self.state_manager.get_mode_prefix("output")
         with VContainer(fluid=True):
             for name in self.state_manager.output_variable_names:
-                state_key = f"{prefix}_{sanitize_string(name)}"
+                state_key = f"{prefix}.{sanitize_string(name)}"
                 with VRow():
                     with VCol():
                         Div(f"{name}")
@@ -177,6 +184,7 @@ class UI:
                         VTextField(
                             v_model=(state_key,),
                             readonly=True,
+                            change=f"flushState('{prefix}')",
                         )
 
     def _initialize_input_widgets(self) -> None:
@@ -199,7 +207,7 @@ class UI:
 
         prefix = self.state_manager.get_mode_prefix("input")
 
-        state_key = f"{prefix}_{sanitize_string(name)}"
+        state_key = f"{prefix}.{sanitize_string(name)}"
 
         if step <= 0:
             with VRow():
@@ -223,12 +231,14 @@ class UI:
                             min=min_value,
                             max=max_value,
                             step=step,
-                            end=self.evaluate_and_update_plot,
+                            update_modelValue=f"flushState('{prefix}')",
+                            end=self.ctrl.evaluate_and_update_plot,
                         )
                         Div(f"{round(max_value, 2)}")
                 with VCol():
                     VTextField(
                         v_model=(state_key,),
+                        change=f"flushState('{prefix}'); trigger('{self.ctrl.trigger_name(self.ctrl.evaluate_and_update_plot)}')",
                     )
 
     def _collect_values_by_variable_name(
@@ -245,8 +255,9 @@ class UI:
         plot_variables: list[str] = []
         prefix = self.state_manager.get_mode_prefix("output_display")
         for name in self.state_manager.output_variable_names:
-            state_key = f"{prefix}_{sanitize_string(name)}"
-            if self.state.has(state_key) and self.state[state_key]:
+            variables = cast(dict[str, bool], self.state[prefix])
+            s_name = f"{sanitize_string(name)}"
+            if s_name in variables and variables[s_name]:
                 plot_variables.append(name)
         return plot_variables
 
@@ -297,9 +308,10 @@ class UI:
         for var_name in self.state_manager.output_variable_names:
             with VCol():
                 VCheckbox(
-                    v_model=(f"{prefix}_{sanitize_string(var_name)}",),
+                    v_model=(f"{prefix}.{sanitize_string(var_name)}",),
                     label=var_name,
-                    change=self.ctrl.update_plot,
+                    change=f"flushState('{prefix}')",
+                    # change=f"flushState('{prefix}'); trigger('{self.ctrl.trigger_name(self.ctrl.update_plot)}')",  # type: ignore
                 )
 
     def _initialize_timeseries_figure(self) -> Figure:
@@ -337,6 +349,3 @@ class UI:
         self.figure_hist.update(  # pyright: ignore[reportUnknownMemberType]
             plotly_fig=fig2
         )
-
-    def update_plot(self) -> None:
-        self._update_figure()

@@ -41,21 +41,27 @@ class St(State):  # type: ignore[misc]
     plot_data: dict[str, list[float]]
     mode: str
     mode_options: list[dict[str, str]]
+    interactive_input_variables: dict[str, float]
+    interactive_output_variables: dict[str, float | str]
+    interactive_output_checkboxes: dict[str, bool]
+    streaming_input_variables: dict[str, float]
+    streaming_output_variables: dict[str, float | str]
+    streaming_output_checkboxes: dict[str, bool]
 
 
 class StateManager:
     DEFAULT_UPDATE_INTERVAL = 1.0  # seconds
 
-    PREFIX_INTERACTIVE_INPUT = "interactive_input_variable"
-    PREFIX_INTERACTIVE_OUTPUT = "interactive_output_variable"
-    PREFIX_INTERACTIVE_OUTPUT_DISPLAY = "interactive_output_display"
+    INTERACTIVE_INPUT_VARIABLES = "interactive_input_variables"
+    INTERACTIVE_OUTPUT_VARIABLES = "interactive_output_variables"
+    INTERACTIVE_OUTPUT_CHECKBOXES = "interactive_output_checkboxes"
 
-    PREFIX_STREAMING_INPUT = "streaming_input_variable"
-    PREFIX_STREAMING_OUTPUT = "streaming_output_variable"
-    PREFIX_STREAMING_OUTPUT_DISPLAY = "streaming_output_display"
+    STREAMING_INPUT_VARIABLES = "streaming_input_variables"
+    STREAMING_OUTPUT_VARIABLES = "streaming_output_variables"
+    STREAMING_OUTPUT_CHECKBOXES = "streaming_output_checkboxes"
 
     DEFAULT_OUTPUT_VALUE = "N/A"
-    DEFAULT_OUTPUT_DISPLAY_VALUE = True
+    DEFAULT_OUTPUT_CHECKBOX_VALUE = True
 
     interactive_history_df = pd.DataFrame()
     streaming_history_df = pd.DataFrame()
@@ -66,16 +72,17 @@ class StateManager:
     def __init__(
         self,
         server: Server,
-        model: TorchModel,
+        model_path: str,
         pv_output_names: list[str],
     ) -> None:
         self.server = server
-        self.model = model
         self.pv_output_names = pv_output_names
+
+        self.load_model(model_path)
 
         self._initialize_state()
         self._initialize_event_handlers()
-        self._initialize_state_handlers()
+
         self._initialize_coroutines()
 
     @property
@@ -85,6 +92,10 @@ class StateManager:
     @property
     def ctrl(self) -> Ctrl:
         return self.server.controller  # type: ignore
+
+    def load_model(self, model_path: str) -> None:
+        self.model = TorchModel(model_path)
+        logger.info(f"Model loaded from {model_path}")
 
     def set_state(self, key: str, value: object) -> None:
         """Set a state value with server-side key validation.
@@ -107,43 +118,59 @@ class StateManager:
         # This method can be expanded to include any additional initialization logic
 
         # Input Variables
+        interactive_input_variables_dict: dict[str, float] = {}
+
         for var in self.model.input_variables:
             if var.default_value is not None:
                 corrected_default = fix_out_of_range_value(
                     var.default_value, var.value_range
                 )
 
-                key = f"{self.PREFIX_INTERACTIVE_INPUT}_{sanitize_string(var.name)}"
+                dict_key = sanitize_string(var.name)
 
-                self.set_state(
-                    key,
-                    corrected_default,
-                )
+                interactive_input_variables_dict[dict_key] = corrected_default
                 self.input_variable_names.append(var.name)
+
+        state_key = self.INTERACTIVE_INPUT_VARIABLES
+
+        self.set_state(
+            state_key,
+            interactive_input_variables_dict,
+        )
+
+        # Output Variables
+
+        interactive_output_variables_dict: dict[str, float | str] = {}
+        interactive_output_checkboxes_dict: dict[str, bool] = {}
 
         column_names: list[str] = []
 
-        # Output Variables
         for var in self.model.output_variables:
-            output_key = f"{self.PREFIX_INTERACTIVE_OUTPUT}_{sanitize_string(var.name)}"
+            s_var_name = sanitize_string(var.name)
 
-            self.set_state(
-                output_key,
-                self.DEFAULT_OUTPUT_VALUE,
-            )
+            interactive_output_variables_dict[s_var_name] = self.DEFAULT_OUTPUT_VALUE
 
-            # Display checkbox state for each output variable
-            display_key = (
-                f"{self.PREFIX_INTERACTIVE_OUTPUT_DISPLAY}_{sanitize_string(var.name)}"
-            )
-
-            self.set_state(
-                display_key,
-                self.DEFAULT_OUTPUT_DISPLAY_VALUE,
+            interactive_output_checkboxes_dict[s_var_name] = (
+                self.DEFAULT_OUTPUT_CHECKBOX_VALUE
             )
 
             column_names.append(var.name)
             self.output_variable_names.append(var.name)
+
+        state_key = f"{self.INTERACTIVE_OUTPUT_VARIABLES}"
+
+        self.set_state(
+            state_key,
+            interactive_output_variables_dict,
+        )
+
+        # Display checkbox state for each output variable
+        display_key = f"{self.INTERACTIVE_OUTPUT_CHECKBOXES}"
+
+        self.set_state(
+            display_key,
+            interactive_output_checkboxes_dict,
+        )
 
         self.interactive_history_df = pd.DataFrame(columns=column_names)
         output_dict = self.interactive_history_df.to_dict(orient="list")
@@ -152,32 +179,43 @@ class StateManager:
     def _initialize_streaming_variables(self) -> None:
         """Initialize state values for streaming mode variables."""
         # Input Variables
+        streaming_input_variables_dict: dict[str, float] = {}
+        self.set_state(self.STREAMING_INPUT_VARIABLES, streaming_input_variables_dict)
         # No input variables for streaming mode since data is generated from PVs
 
         column_names: list[str] = []
 
         # Output Variables
 
+        streaming_output_variables_dict: dict[str, float | str] = {}
+        streaming_output_checkboxes_dict: dict[str, bool] = {}
+
         for var in self.pv_output_names:
-            output_key = f"{self.PREFIX_STREAMING_OUTPUT}_{sanitize_string(var)}"
+            s_var_name = sanitize_string(var)
 
-            self.set_state(
-                output_key,
-                self.DEFAULT_OUTPUT_VALUE,
-            )
+            streaming_output_variables_dict[s_var_name] = self.DEFAULT_OUTPUT_VALUE
 
-            # Display checkbox state for each output variable
-            display_key = (
-                f"{self.PREFIX_STREAMING_OUTPUT_DISPLAY}_{sanitize_string(var)}"
-            )
-
-            self.set_state(
-                display_key,
-                self.DEFAULT_OUTPUT_DISPLAY_VALUE,
+            streaming_output_checkboxes_dict[s_var_name] = (
+                self.DEFAULT_OUTPUT_CHECKBOX_VALUE
             )
 
             column_names.append(var)
             self.output_variable_names.append(var)
+
+        state_key = f"{self.STREAMING_OUTPUT_VARIABLES}"
+
+        self.set_state(
+            state_key,
+            streaming_output_variables_dict,
+        )
+
+        # Display checkbox state for each output variable
+        display_key = f"{self.STREAMING_OUTPUT_CHECKBOXES}"
+
+        self.set_state(
+            display_key,
+            streaming_output_checkboxes_dict,
+        )
 
         self.streaming_history_df = pd.DataFrame(columns=column_names)
         output_dict = self.streaming_history_df.to_dict(orient="list")
@@ -230,25 +268,32 @@ class StateManager:
     def _initialize_event_handlers(self) -> None:
         """Initialize event handlers for streaming and plot updates."""
         # Event handlers are registered in the main app class using decorators
-        self.ctrl.on_server_ready = None  # type: ignore
-        self.ctrl.collect_and_update_plot = None  # type: ignore
+        self.ctrl.toggle_streaming = self._toggle_streaming
+        self.ctrl.toggle_mode = self._toggle_mode
 
+        # Set in ui.py after UI is initialized
+        self.ctrl.collect_and_update_plot = None  # type: ignore
         self.ctrl.update_plot = None  # type: ignore
         self.ctrl.reinitialize_ui = None  # type: ignore
         self.ctrl.evaluate_and_update_plot = None  # type: ignore
-        self.ctrl.toggle_streaming = self._toggle_streaming
-        self.ctrl.toggle_mode = self._toggle_mode
 
     def _initialize_coroutines(self) -> None:
         """Initialize any background coroutines (like data streaming)."""
         # Coroutines are registered in the main app class using decorators
         self.ctrl.on_server_ready.add_task(self._data_stream_task)  # type: ignore
 
-    def _initialize_state_handlers(self) -> None:
+    def initialize_state_handlers(self) -> None:
         """Initialize state change handlers for interactive variables."""
         # State change handlers are registered in the main app class using decorators
 
         self.state.change("hist_x_axis", "hist_y_axis")(self._handle_hist_axis_change)
+        self.state.change(
+            self.INTERACTIVE_OUTPUT_CHECKBOXES, self.STREAMING_OUTPUT_CHECKBOXES
+        )(self.ctrl.update_plot)
+        # self.state.change(
+        #     self.INTERACTIVE_INPUT_VARIABLES,
+        #     self.STREAMING_INPUT_VARIABLES,
+        # )(self.ctrl.evaluate_and_update_plot)
 
     async def _data_stream_task(self, *args: Any, **kwargs: Any) -> None:
         """Async task that simulates streaming data and updates plots."""
@@ -332,15 +377,22 @@ class StateManager:
 
         if self.state.mode == "1":
             self.interactive_history_df = output_df
-            prefix = self.PREFIX_INTERACTIVE_OUTPUT
+            prefix = self.INTERACTIVE_OUTPUT_VARIABLES
         else:
             self.streaming_history_df = output_df
-            prefix = self.PREFIX_STREAMING_OUTPUT
+            prefix = self.STREAMING_OUTPUT_VARIABLES
         self.set_state("plot_data", output_df.to_dict(orient="list"))
 
+        row_dict: dict[str, float | str] = {}
+
         for key, value in row.items():
-            state_key = f"{prefix}_{sanitize_string(key)}"
-            self.set_state(state_key, value)
+            state_key = f"{sanitize_string(key)}"
+            v: float | str = (
+                value if value is not None else str(self.DEFAULT_OUTPUT_VALUE)
+            )
+            row_dict[state_key] = v
+
+        self.set_state(prefix, row_dict)
 
         self.state.dirty("plot_data")
 
@@ -359,18 +411,18 @@ class StateManager:
         mode = self.state.mode
         if mode == "1":  # Interactive mode
             if type == "input":
-                return self.PREFIX_INTERACTIVE_INPUT
+                return self.INTERACTIVE_INPUT_VARIABLES
             elif type == "output":
-                return self.PREFIX_INTERACTIVE_OUTPUT
+                return self.INTERACTIVE_OUTPUT_VARIABLES
             elif type == "output_display":
-                return self.PREFIX_INTERACTIVE_OUTPUT_DISPLAY
+                return self.INTERACTIVE_OUTPUT_CHECKBOXES
         else:  # Streaming mode
             if type == "input":
-                return self.PREFIX_STREAMING_INPUT
+                return self.STREAMING_INPUT_VARIABLES
             elif type == "output":
-                return self.PREFIX_STREAMING_OUTPUT
+                return self.STREAMING_OUTPUT_VARIABLES
             elif type == "output_display":
-                return self.PREFIX_STREAMING_OUTPUT_DISPLAY
+                return self.STREAMING_OUTPUT_CHECKBOXES
 
         raise ValueError(
             f"Invalid variable type: {type}. Must be 'input', 'output', or 'output_display'."
