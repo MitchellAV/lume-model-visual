@@ -9,7 +9,7 @@ from trame_server.core import BackendType, ExecModeType
 from state import StateManager
 from ui import UI
 
-from util import initialize_logger
+from utils import initialize_logger
 
 logger = initialize_logger(__name__)
 

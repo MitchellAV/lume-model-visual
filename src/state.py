@@ -9,11 +9,12 @@ from trame_server.controller import Controller
 
 from lume_model.models import TorchModel
 
-from util import (
+from utils import (
     fix_out_of_range_value,
     sanitize_string,
     validate_state_key,
     initialize_logger,
+    logger_debug,
 )
 
 import epics
@@ -317,6 +318,7 @@ class StateManager:
     def _handle_hist_axis_change(self, *args: Any, **kwargs: Any) -> None:
         self.ctrl.update_plot()
 
+    @logger_debug(logger)
     def _toggle_mode(self, *args: Any, **kwargs: Any) -> None:
         current_mode = self.state.mode
         if current_mode == "0":
@@ -327,6 +329,7 @@ class StateManager:
         self.reset_state()  # Re-initialize variables for the new mode
         self.ctrl.reinitialize_ui()
 
+    @logger_debug(logger)
     def _toggle_streaming(self) -> None:
         if self.state.streaming_active:
             self.set_state("streaming_active", False)
@@ -344,12 +347,14 @@ class StateManager:
         #     value = pv.get()
         #     # Update state with new PV value (this is just an example, adjust as needed)
         #     self.set_state(f"{self.PREFIX_OUTPUT}_{sanitize_string(pv_name)}", value)
+        try:
+            values = cast(list[float | None], epics.caget_many(self.pv_output_names))
 
-        values = cast(list[float | None], epics.caget_many(self.pv_output_names))
+            value_dict = dict(zip(self.pv_output_names, values))
 
-        value_dict = dict(zip(self.pv_output_names, values))
-
-        self.update_plot_data(value_dict)
+            self.update_plot_data(value_dict)
+        except Exception as e:
+            logger.error(f"Error streaming PV data: {e}")
 
     def update_plot_data(self, output: dict[str, float | None]) -> None:
         """Update the plot data in state with new model outputs."""
@@ -427,3 +432,43 @@ class StateManager:
         raise ValueError(
             f"Invalid variable type: {type}. Must be 'input', 'output', or 'output_display'."
         )
+
+    def collect_input_values(self) -> dict[str, float]:
+        input_dict: dict[str, float] = {}
+        prefix = self.get_mode_prefix("input")
+        input_variables = cast(dict[str, float], self.state[f"{prefix}"])
+        for var in self.model.input_variables:
+            var_name = var.name
+            s_name = sanitize_string(var_name)
+            if s_name not in input_variables:
+                continue
+            input_dict[var_name] = float(input_variables[s_name])
+
+        return input_dict
+
+    def collect_plot_variables(self) -> list[str]:
+        plot_variables: list[str] = []
+        prefix = self.get_mode_prefix("output_display")
+        for name in self.output_variable_names:
+            variables = cast(dict[str, bool], self.state[prefix])
+            s_name = f"{sanitize_string(name)}"
+            if s_name in variables and variables[s_name]:
+                plot_variables.append(name)
+        return plot_variables
+
+    def collect_values_by_variable_name(
+        self, variable_names: list[str]
+    ) -> pd.DataFrame:
+        output_df = cast(pd.DataFrame, pd.DataFrame.from_dict(self.state.plot_data))  # pyright: ignore[reportUnknownMemberType]
+
+        # Remove any columns not in variable_names
+        output_df = cast(pd.DataFrame, output_df[variable_names])
+
+        return output_df
+
+    def evaluate_model(self) -> None:
+        mode = self.state.mode
+        if mode == "1":
+            input_dict = self.collect_input_values()
+            output = self.model.evaluate(input_dict)  # pyright: ignore
+            self.update_plot_data(output)

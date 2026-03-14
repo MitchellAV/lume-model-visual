@@ -5,6 +5,12 @@ import logging
 import logging.config
 
 
+from typing import Callable, ParamSpec, TypeVar
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
 def initialize_logger(name: str) -> logging.Logger:
     logging_config_path = os.path.join(os.path.dirname(__file__), "logging.ini")
 
@@ -17,6 +23,50 @@ def initialize_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
 
     return logger
+
+
+class _FuncFilter(logging.Filter):
+    """Temporarily overrides funcName and lineno on log records."""
+
+    def __init__(self, func_name: str, lineno: int) -> None:
+        super().__init__()
+        self._func_name = func_name
+        self._lineno = lineno
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.funcName = self._func_name
+        record.lineno = self._lineno
+        return True
+
+
+def logger_debug(logger: logging.Logger) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        # Capture source info at decoration time from the code object
+        func_name = func.__code__.co_name
+        func_lineno = func.__code__.co_firstlineno
+
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            # Skip 'self'/'cls' in log output if present
+            log_args = args
+            if args and hasattr(args[0], func_name):
+                log_args = args[1:]  # type: ignore
+
+            f = _FuncFilter(func_name, func_lineno)
+            logger.addFilter(f)
+
+            try:
+                logger.debug(
+                    f"Entering {func_name} with args={log_args}, kwargs={kwargs}"
+                )
+                result = func(*args, **kwargs)
+                logger.debug(f"Exiting {func_name} with result={result}")
+            finally:
+                logger.removeFilter(f)
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 def get_model_path(

@@ -1,7 +1,7 @@
 import os
 from gui import LUMEModelVisualApp
 from dotenv import load_dotenv
-from util import get_model_path, initialize_logger
+from utils import get_model_path, initialize_logger
 
 env_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
 
